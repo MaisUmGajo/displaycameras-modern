@@ -1,0 +1,41 @@
+#!/bin/bash
+# displaycameras-session - the program xinit launches inside the X server.
+#
+# It prepares a bare, blank kiosk X session (no screensaver, no DPMS, black
+# background, hidden cursor, decorationless window manager), starts the camera
+# tiles, then runs the supervisor in the foreground. When the supervisor exits
+# (or is killed), X exits and systemd restarts the whole session.
+
+export DISPLAY="${DISPLAY:-:0}"
+
+DC=/usr/local/bin/displaycameras
+[ -x "$DC" ] || DC="$(dirname "$(readlink -f "$0")")/displaycameras"
+
+OPENBOX_RC=/etc/displaycameras/openbox-rc.xml
+
+# No blanking / power management on an always-on wall.
+xset s off -dpms s noblank 2>/dev/null
+
+# Black background fills the gaps between (and around) tiles.
+if command -v xsetroot >/dev/null 2>&1; then
+	xsetroot -solid black
+fi
+
+# Hide the mouse pointer.
+if command -v unclutter >/dev/null 2>&1; then
+	unclutter -idle 0 -root >/dev/null 2>&1 &
+fi
+
+# A tiny, decorationless window manager so mpv --geometry is honored exactly.
+if command -v openbox >/dev/null 2>&1; then
+	if [ -r "$OPENBOX_RC" ]; then
+		openbox --config-file "$OPENBOX_RC" >/dev/null 2>&1 &
+	else
+		openbox >/dev/null 2>&1 &
+	fi
+	sleep 0.5
+fi
+
+# Start the wall and hand off to the supervisor (stays in the foreground).
+"$DC" start
+exec "$DC" supervise

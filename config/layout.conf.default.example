@@ -1,0 +1,46 @@
+# Camera / tile layout for the displaycameras service.
+# Installed to /etc/displaycameras/layout.conf.default
+#
+# This file ONLY configures the tiles and feeds; service-wide options are in
+# displaycameras.conf.
+#
+# The format is compatible with the original displaycameras project: tile
+# rectangles are written as "X1 Y1 X2 Y2" (top-left and bottom-right pixel
+# coordinates on the X screen). Unlike the original, you do NOT need extra
+# off-screen windows for rotation - rotation cycles the camera list through
+# the on-screen tiles in place.
+#
+# This example: a 2x2 grid of four cameras on a 1920x1080 display.
+
+# Tile names (one per on-screen tile). Purely for readability.
+windows=(upper_left upper_right lower_left lower_right)
+
+# Tile rectangles, in the same order as the names above: "X1 Y1 X2 Y2".
+# Four 960x540 quadrants of a 1920x1080 screen.
+window_positions=(
+	"0 0 959 539"        \
+	"960 0 1919 539"     \
+	"0 540 959 1079"     \
+	"960 540 1919 1079"  \
+)
+
+# Camera names, in feed order. One per camera.
+camera_names=(Front Back Drive Yard)
+
+# Camera feed URLs, in the same order as camera_names. Use each camera's
+# low-resolution substream where possible - the Pi 4 has a single shared
+# hardware decoder, so lower-res feeds let you display more of them.
+camera_feeds=(
+	"rtsp://user:pass@192.168.1.11:554/stream2"  \
+	"rtsp://user:pass@192.168.1.12:554/stream2"  \
+	"rtsp://user:pass@192.168.1.13:554/stream2"  \
+	"rtsp://user:pass@192.168.1.14:554/stream2"  \
+)
+
+# Cycle feeds through the tiles? (default false). Useful when you have more
+# cameras than tiles. Set the dwell time with rotatedelay in displaycameras.conf.
+#rotate="true"
+
+# How many steps to advance per rotation. Setting this to the number of tiles
+# makes the wall "flip" between whole sets of cameras. Sane range: 1..cameras.
+#seq_step=1

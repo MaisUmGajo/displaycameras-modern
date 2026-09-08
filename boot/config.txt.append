@@ -1,0 +1,24 @@
+# --- displaycameras recommended settings ---------------------------------
+# Append to /boot/firmware/config.txt (Bookworm) or /boot/config.txt (older),
+# then reboot. These are safe defaults; adjust to taste.
+
+# KMS driver with the full V3D stack (this is the Bookworm default; listed here
+# only so the file is complete). Required for mpv hardware decode/output.
+dtoverlay=vc4-kms-v3d
+
+# Enlarge the contiguous memory (CMA) pool. The Pi 4's hardware video decoder
+# allocates buffers from CMA; a bigger pool lets you run more simultaneous
+# decoded feeds before falling back to software. 256M is a good starting point
+# for a busy 3x3 wall; use cma-128 for lighter setups.
+dtoverlay=vc4-kms-v3d,cma-256
+
+# Force a specific HDMI mode if your display is not detected correctly, e.g.
+# 1920x1080@60. Leave commented to auto-detect. See:
+#   https://www.raspberrypi.com/documentation/computers/config_txt.html
+#hdmi_group=1
+#hdmi_mode=16
+
+# For dual-HDMI walls on the Pi 4, ensure both outputs are enabled:
+#hdmi_force_hotplug:0=1
+#hdmi_force_hotplug:1=1
+# --------------------------------------------------------------------------

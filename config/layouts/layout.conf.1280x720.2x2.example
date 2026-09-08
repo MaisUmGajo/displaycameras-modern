@@ -1,0 +1,21 @@
+# 2x2 grid of 640x360 tiles on a 1280x720 display.
+
+windows=(upper_left upper_right lower_left lower_right)
+
+window_positions=(
+	"0 0 639 359"       \
+	"640 0 1279 359"    \
+	"0 360 639 719"     \
+	"640 360 1279 719"  \
+)
+
+camera_names=(Front Back Drive Yard)
+
+camera_feeds=(
+	"rtsp://user:pass@192.168.1.11:554/stream2"  \
+	"rtsp://user:pass@192.168.1.12:554/stream2"  \
+	"rtsp://user:pass@192.168.1.13:554/stream2"  \
+	"rtsp://user:pass@192.168.1.14:554/stream2"  \
+)
+
+#rotate="true"

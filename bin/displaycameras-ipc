@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""displaycameras-ipc - talk to a running mpv tile over its JSON IPC socket.
+
+This is the modern replacement for the original project's omxplayer_dbuscontrol
+helper. Each mpv tile is started with --input-ipc-server=<socket>; this tool
+sends a command to that socket and prints the reply.
+
+Usage:
+  displaycameras-ipc getprop  <socket> <property>
+  displaycameras-ipc setprop  <socket> <property> <value>
+  displaycameras-ipc loadfile <socket> <url>
+  displaycameras-ipc quit     <socket>
+  displaycameras-ipc cmd      <socket> <arg> [<arg> ...]   # raw mpv command
+
+getprop prints the property value (JSON-encoded scalars: numbers as-is,
+booleans as true/false, strings unquoted) and exits non-zero if the property
+is unavailable (e.g. null), so shell callers can test with -n / $?.
+"""
+import json
+import socket
+import sys
+
+
+def _connect(path, timeout=1.5):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    s.connect(path)
+    return s
+
+
+def _request(path, command):
+    """Send one command and return its reply dict (matching request_id)."""
+    req_id = 1
+    payload = json.dumps({"command": command, "request_id": req_id}) + "\n"
+    s = _connect(path)
+    try:
+        s.sendall(payload.encode("utf-8"))
+        buf = b""
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                if not line.strip():
+                    continue
+                try:
+                    msg = json.loads(line.decode("utf-8"))
+                except ValueError:
+                    continue
+                # Skip asynchronous events; wait for our command's reply.
+                if msg.get("request_id") == req_id or (
+                    "error" in msg and "event" not in msg
+                ):
+                    return msg
+    finally:
+        s.close()
+    return None
+
+
+def _fmt(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    return json.dumps(value)
+
+
+def main(argv):
+    if len(argv) < 3:
+        sys.stderr.write(__doc__)
+        return 2
+
+    action, sockpath = argv[1], argv[2]
+    args = argv[3:]
+
+    try:
+        if action == "getprop":
+            reply = _request(sockpath, ["get_property", args[0]])
+            if not reply or reply.get("error") != "success":
+                return 3
+            data = reply.get("data")
+            if data is None:
+                return 3
+            print(_fmt(data))
+            return 0
+
+        if action == "setprop":
+            reply = _request(sockpath, ["set_property", args[0], args[1]])
+        elif action == "loadfile":
+            reply = _request(sockpath, ["loadfile", args[0], "replace"])
+        elif action == "quit":
+            reply = _request(sockpath, ["quit"])
+        elif action == "cmd":
+            reply = _request(sockpath, list(args))
+        else:
+            sys.stderr.write("Unknown action: %s\n" % action)
+            return 2
+    except (OSError, socket.timeout):
+        # Socket missing or mpv not listening.
+        return 1
+    except IndexError:
+        sys.stderr.write("Missing argument(s) for '%s'.\n" % action)
+        return 2
+
+    if reply is None:
+        return 1
+    return 0 if reply.get("error") == "success" else 4
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

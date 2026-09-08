@@ -1,0 +1,351 @@
+#!/bin/bash
+# displaycameras (modern) - RTSP camera video wall for Raspberry Pi 4 on
+# Raspberry Pi OS Bookworm (the latest Raspbian).
+#
+# A faithful, modernized port of https://github.com/Anonymousdog/displaycameras
+# The original used omxplayer + dispmanx + dbus, all of which are gone on the
+# Pi 4 / Bookworm KMS graphics stack. This version renders one mpv instance per
+# tile inside a minimal X11 session and controls/monitors them over mpv's JSON
+# IPC socket (see displaycameras-ipc). CLI verbs and config schema are kept
+# compatible with the original.
+#
+# version: 1.0.0
+
+set -o pipefail
+
+# ---------------------------------------------------------------------------
+# Locate the IPC helper (prefer a copy alongside this script, e.g. when run
+# straight from the repo, otherwise the installed one).
+# ---------------------------------------------------------------------------
+SELFDIR="$(dirname "$(readlink -f "$0")")"
+IPC="$SELFDIR/displaycameras-ipc"
+[ -x "$IPC" ] || IPC="/usr/local/bin/displaycameras-ipc"
+
+CONF_DIR="/etc/displaycameras"
+GLOBAL_CONF="$CONF_DIR/displaycameras.conf"
+RUN_DIR="/run/displaycameras"
+SEQ_FILE="$RUN_DIR/sequence"
+PIDFILE="$RUN_DIR/displaycameras.pid"
+
+# ---------------------------------------------------------------------------
+# Prerequisites
+# ---------------------------------------------------------------------------
+if ! command -v mpv >/dev/null 2>&1; then
+	echo "mpv is not installed. Run install.sh or 'apt install mpv'." >&2
+	exit 1
+fi
+if [ ! -x "$IPC" ]; then
+	echo "displaycameras-ipc helper not found or not executable ($IPC)." >&2
+	exit 1
+fi
+if [ ! -r "$GLOBAL_CONF" ]; then
+	echo "$GLOBAL_CONF does not exist or is not readable." >&2
+	exit 1
+fi
+# shellcheck source=/dev/null
+. "$GLOBAL_CONF"
+
+if [ ! -r "$CONF_DIR/layout.conf.default" ]; then
+	echo "$CONF_DIR/layout.conf.default does not exist or is not readable." >&2
+	exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Optional display autodetection: pick layout.conf.<WxH> based on the current
+# X screen resolution (xrandr), falling back to layout.conf.default.
+# (Replaces the original fbset-based detection, which no longer applies.)
+# ---------------------------------------------------------------------------
+displaydetectactive=false
+if [ "$displaydetect" = "true" ] && command -v xrandr >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
+	mode="$(xrandr --current 2>/dev/null | awk '/\*/{print $1; exit}')"
+	if [ -n "$mode" ] && [ -r "$CONF_DIR/layout.conf.$mode" ]; then
+		# shellcheck source=/dev/null
+		. "$CONF_DIR/layout.conf.$mode"
+		displaydetectactive=true
+	else
+		# shellcheck source=/dev/null
+		. "$CONF_DIR/layout.conf.default"
+		[ -n "$mode" ] && echo "No layout configuration file found for $mode; using default."
+	fi
+else
+	# shellcheck source=/dev/null
+	. "$CONF_DIR/layout.conf.default"
+fi
+
+# ---------------------------------------------------------------------------
+# Defaults / normalization
+# ---------------------------------------------------------------------------
+# net_timeout is the modern name; accept the original omx_timeout for compat.
+net_timeout="${net_timeout:-${omx_timeout:-30}}"
+startsleep="${startsleep:-3}"
+feedsleep="${feedsleep:-1}"
+retry="${retry:-5}"
+rotatedelay="${rotatedelay:-5}"
+repair_interval="${repair_interval:-5}"
+hwdec="${hwdec:-auto-safe}"
+fill_mode="${fill_mode:-letterbox}"
+vo="${vo:-gpu}"
+seq_step="${seq_step:-1}"
+blank="${blank:-true}"
+
+cameras="${#camera_names[@]}"
+nwin="${#window_positions[@]}"
+max_seq=$((cameras - 1))
+if [ "$cameras" -lt 1 ]; then
+	echo "No cameras defined (camera_names is empty)." >&2
+	exit 1
+fi
+if [ "$seq_step" -gt "$max_seq" ] 2>/dev/null || [ "$seq_step" -lt 1 ] 2>/dev/null; then
+	seq_step=1
+fi
+
+mkdir -p "$RUN_DIR" 2>/dev/null
+
+# Current rotation offset (persisted across invocations within a run)
+if [ ! -f "$SEQ_FILE" ]; then echo 0 >"$SEQ_FILE"; fi
+DISPLAY_SEQUENCE="$(cat "$SEQ_FILE" 2>/dev/null)"
+[ -n "$DISPLAY_SEQUENCE" ] || DISPLAY_SEQUENCE=0
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# camera index currently assigned to window index $1, given the rotation offset
+cam_for_window() {
+	local w="$1"
+	echo $(((w + DISPLAY_SEQUENCE) % cameras + cameras) % cameras)
+}
+
+sock_for_window()  { echo "$RUN_DIR/win-$1.sock"; }
+pidf_for_window()  { echo "$RUN_DIR/win-$1.pid"; }
+
+# Translate an original-style "x1 y1 x2 y2" rectangle into an mpv --geometry
+# string WxH+X+Y. Prints nothing on malformed input.
+geometry_for() {
+	local rect="$1" x1 y1 x2 y2 w h
+	read -r x1 y1 x2 y2 <<<"$rect"
+	[ -n "$x2" ] && [ -n "$y2" ] || return 1
+	w=$((x2 - x1 + 1))
+	h=$((y2 - y1 + 1))
+	echo "${w}x${h}+${x1}+${y1}"
+}
+
+# mpv flags derived from fill_mode
+fill_flags() {
+	case "$fill_mode" in
+		stretch)  echo "--no-keepaspect" ;;
+		crop)     echo "--keepaspect --panscan=1.0" ;;
+		*)        echo "--keepaspect --panscan=0.0" ;; # letterbox (default)
+	esac
+}
+
+# Launch a fresh mpv for window index $1 showing URL $2.
+launch_tile() {
+	local w="$1" url="$2"
+	local sock pidf geom
+	sock="$(sock_for_window "$w")"
+	pidf="$(pidf_for_window "$w")"
+	geom="$(geometry_for "${window_positions[$w]}")"
+	if [ -z "$geom" ]; then
+		echo "Window $w has an invalid position: '${window_positions[$w]}'" >&2
+		return 1
+	fi
+	rm -f "$sock"
+	# shellcheck disable=SC2046
+	mpv \
+		--no-config \
+		--input-ipc-server="$sock" \
+		--geometry="$geom" \
+		--autofit-larger=100%x100% \
+		--no-border --no-osc --osd-level=0 --no-input-terminal \
+		--no-input-default-bindings --input-vo-keyboard=no \
+		--cursor-autohide=always \
+		--no-audio \
+		--force-window=immediate --idle=yes --keep-open=no \
+		--profile=low-latency \
+		--cache=no \
+		--network-timeout="$net_timeout" \
+		--rtsp-transport=tcp \
+		--hwdec="$hwdec" \
+		--vo="$vo" \
+		--really-quiet \
+		$(fill_flags) \
+		-- "$url" >/dev/null 2>&1 &
+	echo $! >"$pidf"
+}
+
+# Is the mpv for window $1 alive and actively playing a feed?
+tile_playing() {
+	local sock idle tp
+	sock="$(sock_for_window "$1")"
+	[ -S "$sock" ] || return 1
+	idle="$("$IPC" getprop "$sock" idle-active 2>/dev/null)" || return 1
+	[ "$idle" = "false" ] || return 1
+	tp="$("$IPC" getprop "$sock" time-pos 2>/dev/null)" || return 1
+	[ -n "$tp" ] || return 1
+	return 0
+}
+
+# Does the mpv process for window $1 still exist?
+tile_process_alive() {
+	local pidf pid
+	pidf="$(pidf_for_window "$1")"
+	[ -r "$pidf" ] || return 1
+	pid="$(cat "$pidf" 2>/dev/null)"
+	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Verbs
+# ---------------------------------------------------------------------------
+case "$1" in
+
+start)
+	if [ -f "$PIDFILE" ]; then
+		echo "PID file exists. Stop or restart the service instead."
+		exit 1
+	fi
+	if [ "$displaydetectactive" = "true" ]; then
+		echo "Display detection active for $mode."
+	fi
+	for w in $(seq 0 $((nwin - 1))); do
+		ci="$(cam_for_window "$w")"
+		name="${camera_names[$ci]}"
+		url="${camera_feeds[$ci]}"
+		echo "Starting tile $w -> ${name}"
+		launch_tile "$w" "$url"
+		sleep "$startsleep"
+		tries=0
+		until tile_playing "$w"; do
+			sleep 1
+			tries=$((tries + 1))
+			echo "Waiting for ${name} ($tries/$retry)"
+			[ "$tries" -ge "$retry" ] && break
+		done
+		if tile_playing "$w"; then
+			echo "${name} playing"
+		else
+			echo "${name} not yet playing (will be retried by repair)"
+		fi
+		sleep "$feedsleep"
+	done
+	touch "$PIDFILE"
+	echo "Camera display started. Run 'displaycameras status' for details."
+	;;
+
+stop)
+	rm -f "$PIDFILE"
+	echo 0 >"$SEQ_FILE"
+	for w in $(seq 0 $((nwin - 1))); do
+		sock="$(sock_for_window "$w")"
+		[ -S "$sock" ] && "$IPC" quit "$sock" 2>/dev/null
+	done
+	sleep 1
+	for w in $(seq 0 $((nwin - 1))); do
+		pidf="$(pidf_for_window "$w")"
+		if [ -r "$pidf" ]; then
+			pid="$(cat "$pidf" 2>/dev/null)"
+			[ -n "$pid" ] && kill "$pid" 2>/dev/null
+			rm -f "$pidf"
+		fi
+		rm -f "$(sock_for_window "$w")"
+	done
+	echo "Camera display stopped."
+	exit 0
+	;;
+
+restart)
+	"$0" stop
+	sleep 1
+	"$0" start
+	;;
+
+# Reconnect/relaunch any tile that is not actively playing.
+repair)
+	[ -f "$PIDFILE" ] || exit 0
+	for w in $(seq 0 $((nwin - 1))); do
+		if tile_playing "$w"; then
+			continue
+		fi
+		ci="$(cam_for_window "$w")"
+		url="${camera_feeds[$ci]}"
+		if tile_process_alive "$w"; then
+			# mpv is up but idle/stalled: just reload the feed in place.
+			"$IPC" loadfile "$(sock_for_window "$w")" "$url" 2>/dev/null
+		else
+			# mpv died: bring the tile back.
+			echo "Relaunching tile $w -> ${camera_names[$ci]}"
+			launch_tile "$w" "$url"
+		fi
+	done
+	;;
+
+# Advance the rotation one step and reassign feeds to the fixed tiles.
+rotate)
+	[ -f "$PIDFILE" ] || exit 0
+	DISPLAY_SEQUENCE=$(((DISPLAY_SEQUENCE - seq_step) % cameras + cameras) % cameras)
+	for w in $(seq 0 $((nwin - 1))); do
+		ci="$(cam_for_window "$w")"
+		"$IPC" loadfile "$(sock_for_window "$w")" "${camera_feeds[$ci]}" 2>/dev/null
+	done
+	echo "$DISPLAY_SEQUENCE" >"$SEQ_FILE"
+	;;
+
+# Rotate in the opposite direction.
+rotaterev)
+	[ -f "$PIDFILE" ] || exit 0
+	DISPLAY_SEQUENCE=$(((DISPLAY_SEQUENCE + seq_step) % cameras + cameras) % cameras)
+	for w in $(seq 0 $((nwin - 1))); do
+		ci="$(cam_for_window "$w")"
+		"$IPC" loadfile "$(sock_for_window "$w")" "${camera_feeds[$ci]}" 2>/dev/null
+	done
+	echo "$DISPLAY_SEQUENCE" >"$SEQ_FILE"
+	;;
+
+status)
+	for w in $(seq 0 $((nwin - 1))); do
+		ci="$(cam_for_window "$w")"
+		name="${camera_names[$ci]}"
+		if tile_playing "$w"; then
+			echo "tile $w ${name}: playing"
+		else
+			echo "tile $w ${name}: NOT playing"
+		fi
+	done
+	;;
+
+positions)
+	for w in $(seq 0 $((nwin - 1))); do
+		ci="$(cam_for_window "$w")"
+		name="${camera_names[$ci]}"
+		tp="$("$IPC" getprop "$(sock_for_window "$w")" time-pos 2>/dev/null)"
+		echo "tile $w ${name}: ${tp:-n/a}s"
+	done
+	;;
+
+# Foreground supervisor: keeps the X session alive and periodically repairs
+# tiles and (optionally) rotates feeds. Started by displaycameras-session.
+supervise)
+	trap 'exit 0' TERM INT
+	tick=0
+	while true; do
+		sleep 1
+		tick=$((tick + 1))
+		if [ "$repair_interval" -gt 0 ] && [ $((tick % repair_interval)) -eq 0 ]; then
+			"$0" repair
+		fi
+		if [ "$rotate" = "true" ] && [ "$rotatedelay" -gt 0 ] && [ $((tick % rotatedelay)) -eq 0 ]; then
+			if [ "$seq_step" -gt 1 ]; then
+				"$0" rotaterev
+			else
+				"$0" rotate
+			fi
+		fi
+	done
+	;;
+
+*)
+	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|supervise}"
+	exit 1
+	;;
+esac

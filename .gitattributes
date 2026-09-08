@@ -1,0 +1,5 @@
+# These scripts run on Linux (Raspberry Pi). Always check out with LF endings,
+# regardless of the platform the repo is edited on, so shebangs and bash/python
+# parsing never break on CRLF.
+* text=auto eol=lf
+*.png binary

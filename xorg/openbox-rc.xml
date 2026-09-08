@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal Openbox configuration for the displaycameras video wall.
+  Openbox is used only so that mpv's --geometry placement is honored exactly.
+  Every window is undecorated, unfocusable chrome is stripped, and Openbox's
+  own placement/keybindings are disabled so nothing interferes with the tiles.
+-->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus>
+    <focusNew>no</focusNew>
+    <followMouse>no</followMouse>
+  </focus>
+  <placement>
+    <!-- Honor client-requested positions from mpv --geometry. -->
+    <policy>UnderMouse</policy>
+  </placement>
+  <theme>
+    <!-- No titlebars or borders on any window. -->
+    <keepBorder>no</keepBorder>
+    <animateIconify>no</animateIconify>
+  </theme>
+  <keyboard>
+    <!-- No keybindings; this is an appliance. -->
+  </keyboard>
+  <mouse>
+    <!-- No mouse bindings either. -->
+  </mouse>
+  <applications>
+    <application class="*">
+      <decor>no</decor>
+      <focus>no</focus>
+      <maximized>no</maximized>
+    </application>
+  </applications>
+</openbox_config>

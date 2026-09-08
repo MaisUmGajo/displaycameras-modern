@@ -1,0 +1,57 @@
+# Global configuration for the displaycameras service (modern / Bookworm port).
+#
+# This file sets service-wide options. The camera names, feed URLs, tile
+# positions, and rotation live in the layout files:
+#   /etc/displaycameras/layout.conf.default            (required)
+#   /etc/displaycameras/layout.conf.<WxH>              (optional, see displaydetect)
+#
+# Installed to /etc/displaycameras/displaycameras.conf
+
+#### Global options
+
+# Paint the X root window black behind the tiles (fills gaps). Default true.
+#blank="true"
+
+# Network timeout, in seconds, for establishing/holding a feed (mpv
+# --network-timeout). Increase it as you add feeds or network hops. The old
+# name "omx_timeout" is still accepted for backward compatibility.
+net_timeout=30
+
+# Hardware decoding mode passed to mpv --hwdec. On a Pi 4 running Bookworm the
+# useful values are:
+#   auto-safe     - let mpv choose a safe HW decoder (recommended default)
+#   v4l2m2m-copy  - force the Pi's V4L2 stateful H.264/HEVC decoder
+#   drm-prime     - zero-copy V4L2 (lower CPU, occasionally less compatible)
+#   no            - software decode (use only for a couple of low-res feeds)
+hwdec=auto-safe
+
+# How each feed fills its tile:
+#   letterbox - preserve aspect ratio, black bars if needed (default)
+#   stretch   - stretch to fill the tile, ignoring aspect ratio
+#   crop      - preserve aspect ratio and crop to fill the tile
+fill_mode=letterbox
+
+# mpv video output. "gpu" is correct for the Pi 4 KMS/mesa stack. Leave as-is
+# unless you are debugging.
+vo=gpu
+
+# Startup pacing (seconds). Recommend startsleep >= 3, feedsleep >= 1. Raise
+# them for higher-resolution feeds, many cameras, or slow links.
+startsleep=3
+feedsleep=1
+
+# How many extra seconds "start" waits, after the sleeps, for a tile to begin
+# playing before moving on (the repair loop will keep retrying afterwards).
+retry=5
+
+# The in-session supervisor re-checks and repairs stalled/dead tiles every
+# this many seconds. Set to 0 to disable automatic repair.
+repair_interval=5
+
+# Display autodetection (disabled by default). When true, the service reads the
+# current X resolution with xrandr and loads layout.conf.<WxH> if it exists
+# (e.g. layout.conf.1920x1080), otherwise layout.conf.default.
+#displaydetect=true
+
+# When rotating feeds across the wall, how many seconds each view is shown.
+#rotatedelay=8

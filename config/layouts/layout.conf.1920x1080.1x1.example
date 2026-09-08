@@ -1,0 +1,22 @@
+# Single full-screen tile on a 1920x1080 display.
+# With rotate="true" this becomes a one-camera-at-a-time slideshow that cycles
+# through every camera in the list.
+
+windows=(fullscreen)
+
+window_positions=(
+	"0 0 1919 1079"  \
+)
+
+camera_names=(Front Back Drive Yard)
+
+camera_feeds=(
+	"rtsp://user:pass@192.168.1.11:554/stream1"  \
+	"rtsp://user:pass@192.168.1.12:554/stream1"  \
+	"rtsp://user:pass@192.168.1.13:554/stream1"  \
+	"rtsp://user:pass@192.168.1.14:554/stream1"  \
+)
+
+# Cycle through the cameras, ~8s each.
+rotate="true"
+seq_step=1

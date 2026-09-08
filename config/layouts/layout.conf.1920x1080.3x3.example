@@ -1,0 +1,32 @@
+# 3x3 grid of 640x360 tiles on a 1920x1080 display.
+# Nine on-screen tiles; if you define more than nine cameras and set
+# rotate="true", the extra cameras cycle through these tiles.
+
+windows=(
+	upper_left  upper_mid  upper_right
+	center_left center_mid center_right
+	lower_left  lower_mid  lower_right
+)
+
+window_positions=(
+	"0 0 639 359"        "640 0 1279 359"        "1280 0 1919 359"     \
+	"0 360 639 719"      "640 360 1279 719"      "1280 360 1919 719"   \
+	"0 720 639 1079"     "640 720 1279 1079"     "1280 720 1919 1079"  \
+)
+
+camera_names=(Cam1 Cam2 Cam3 Cam4 Cam5 Cam6 Cam7 Cam8 Cam9)
+
+camera_feeds=(
+	"rtsp://user:pass@192.168.1.11:554/stream2"  \
+	"rtsp://user:pass@192.168.1.12:554/stream2"  \
+	"rtsp://user:pass@192.168.1.13:554/stream2"  \
+	"rtsp://user:pass@192.168.1.14:554/stream2"  \
+	"rtsp://user:pass@192.168.1.15:554/stream2"  \
+	"rtsp://user:pass@192.168.1.16:554/stream2"  \
+	"rtsp://user:pass@192.168.1.17:554/stream2"  \
+	"rtsp://user:pass@192.168.1.18:554/stream2"  \
+	"rtsp://user:pass@192.168.1.19:554/stream2"  \
+)
+
+#rotate="true"
+#seq_step=1
