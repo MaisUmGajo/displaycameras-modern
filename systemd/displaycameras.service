@@ -17,6 +17,10 @@ StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 UnsetEnvironment=TERM
+# Create /run/displaycameras (owned by User=) for IPC sockets, PID and
+# sequence files. /run itself is not writable by a normal user.
+RuntimeDirectory=displaycameras
+RuntimeDirectoryMode=0755
 # Launch a bare X server whose only client is the camera-wall session.
 ExecStart=/usr/bin/xinit /usr/local/bin/displaycameras-session -- :0 vt1 -keeptty -nolisten tcp
 Restart=always

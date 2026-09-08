@@ -23,7 +23,15 @@ IPC="$SELFDIR/displaycameras-ipc"
 
 CONF_DIR="/etc/displaycameras"
 GLOBAL_CONF="$CONF_DIR/displaycameras.conf"
+# Runtime dir for IPC sockets, PID and sequence files. When run from the
+# systemd service this is created for us by RuntimeDirectory=displaycameras
+# (owned by the service user). /run is not writable by a normal user, so for
+# manual/standalone runs fall back to a user-writable location.
 RUN_DIR="/run/displaycameras"
+if ! mkdir -p "$RUN_DIR" 2>/dev/null || [ ! -w "$RUN_DIR" ]; then
+	RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/displaycameras"
+	mkdir -p "$RUN_DIR" 2>/dev/null
+fi
 SEQ_FILE="$RUN_DIR/sequence"
 PIDFILE="$RUN_DIR/displaycameras.pid"
 
@@ -105,11 +113,18 @@ if [ "$cameras" -lt 1 ]; then
 	echo "No cameras defined (camera_names is empty)." >&2
 	exit 1
 fi
+# The number of distinct cameras comes from camera_names. Warn on the common
+# misconfiguration of defining tiles/feeds but leaving camera_names short, which
+# makes tiles repeat cameras (or, with fewer feeds than names, index gaps).
+if [ "$cameras" -lt "$nwin" ] && [ "$rotate" != "true" ]; then
+	echo "Warning: $cameras camera_names for $nwin tiles - tiles will repeat cameras. Add names to camera_names to match." >&2
+fi
+if [ "${#camera_feeds[@]}" -lt "$cameras" ]; then
+	echo "Warning: ${#camera_feeds[@]} camera_feeds but $cameras camera_names - missing feeds will be blank." >&2
+fi
 if [ "$seq_step" -gt "$max_seq" ] 2>/dev/null || [ "$seq_step" -lt 1 ] 2>/dev/null; then
 	seq_step=1
 fi
-
-mkdir -p "$RUN_DIR" 2>/dev/null
 
 # Current rotation offset (persisted across invocations within a run)
 if [ ! -f "$SEQ_FILE" ]; then echo 0 >"$SEQ_FILE"; fi
@@ -123,7 +138,7 @@ DISPLAY_SEQUENCE="$(cat "$SEQ_FILE" 2>/dev/null)"
 # camera index currently assigned to window index $1, given the rotation offset
 cam_for_window() {
 	local w="$1"
-	echo $(((w + DISPLAY_SEQUENCE) % cameras + cameras) % cameras)
+	echo $(( ( (w + DISPLAY_SEQUENCE) % cameras + cameras) % cameras ))
 }
 
 sock_for_window()  { echo "$RUN_DIR/win-$1.sock"; }
@@ -312,7 +327,7 @@ repair)
 # Advance the rotation one step and reassign feeds to the fixed tiles.
 rotate)
 	[ -f "$PIDFILE" ] || exit 0
-	DISPLAY_SEQUENCE=$(((DISPLAY_SEQUENCE - seq_step) % cameras + cameras) % cameras)
+	DISPLAY_SEQUENCE=$(( ( (DISPLAY_SEQUENCE - seq_step) % cameras + cameras) % cameras ))
 	for w in $(seq 0 $((nwin - 1))); do
 		ci="$(cam_for_window "$w")"
 		"$IPC" loadfile "$(sock_for_window "$w")" "${camera_feeds[$ci]}" 2>/dev/null
@@ -323,7 +338,7 @@ rotate)
 # Rotate in the opposite direction.
 rotaterev)
 	[ -f "$PIDFILE" ] || exit 0
-	DISPLAY_SEQUENCE=$(((DISPLAY_SEQUENCE + seq_step) % cameras + cameras) % cameras)
+	DISPLAY_SEQUENCE=$(( ( (DISPLAY_SEQUENCE + seq_step) % cameras + cameras) % cameras ))
 	for w in $(seq 0 $((nwin - 1))); do
 		ci="$(cam_for_window "$w")"
 		"$IPC" loadfile "$(sock_for_window "$w")" "${camera_feeds[$ci]}" 2>/dev/null
