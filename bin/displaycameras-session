@@ -16,6 +16,9 @@ OPENBOX_RC=/etc/displaycameras/openbox-rc.xml
 # No blanking / power management on an always-on wall.
 xset s off -dpms s noblank 2>/dev/null
 
+# Arrange the two HDMI outputs into one screen (no-op unless dual_hdmi=true).
+"$DC" arrange-displays
+
 # Black background fills the gaps between (and around) tiles.
 if command -v xsetroot >/dev/null 2>&1; then
 	xsetroot -solid black

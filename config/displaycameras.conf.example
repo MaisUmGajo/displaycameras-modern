@@ -55,3 +55,27 @@ repair_interval=5
 
 # When rotating feeds across the wall, how many seconds each view is shown.
 #rotatedelay=8
+
+#### Dual-HDMI (Raspberry Pi 4 has two HDMI outputs)
+
+# Enable to span both outputs as one desktop. At session start the service
+# arranges them with xrandr, then places tiles across the combined area. In
+# your layout file, tag each tile with the output it belongs to using the
+# optional window_outputs array (see config/layouts/layout.conf.dual-hdmi),
+# and give its coordinates RELATIVE to that output - the offset is added for
+# you. Leave this false (default) for a single display.
+#dual_hdmi="true"
+
+# xrandr output names. Leave blank to auto-detect the two connected outputs.
+# On Pi 4 / Bookworm these are usually HDMI-A-1 and HDMI-A-2 (check with
+# `xrandr --query`). hdmi0 is the primary, placed at the top-left origin.
+#hdmi0_output="HDMI-A-1"
+#hdmi1_output="HDMI-A-2"
+
+# Force a mode per output (e.g. 3840x2160 or 1920x1080). Blank = preferred.
+#hdmi0_mode=""
+#hdmi1_mode=""
+
+# Where the second output sits relative to the first:
+# right-of (default), left-of, above, or below.
+#hdmi1_position="right-of"

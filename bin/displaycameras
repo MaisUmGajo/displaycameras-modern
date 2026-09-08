@@ -88,6 +88,16 @@ vo="${vo:-gpu}"
 seq_step="${seq_step:-1}"
 blank="${blank:-true}"
 
+# Dual-HDMI (Pi 4 has two outputs). When enabled, arrange-displays lays the two
+# outputs out as one X screen; layouts may assign tiles to an output via the
+# optional window_outputs array (coordinates are then relative to that output).
+dual_hdmi="${dual_hdmi:-false}"
+hdmi0_output="${hdmi0_output:-}"
+hdmi1_output="${hdmi1_output:-}"
+hdmi0_mode="${hdmi0_mode:-}"
+hdmi1_mode="${hdmi1_mode:-}"
+hdmi1_position="${hdmi1_position:-right-of}"
+
 cameras="${#camera_names[@]}"
 nwin="${#window_positions[@]}"
 max_seq=$((cameras - 1))
@@ -119,15 +129,34 @@ cam_for_window() {
 sock_for_window()  { echo "$RUN_DIR/win-$1.sock"; }
 pidf_for_window()  { echo "$RUN_DIR/win-$1.pid"; }
 
+# Print the "X Y" pixel offset of an xrandr output within the combined X
+# screen (e.g. "1920 0" for a second monitor placed to the right). Prints
+# nothing if the output can't be found; callers treat that as "0 0".
+output_offset() {
+	xrandr --current 2>/dev/null | awk -v o="$1" '
+		$1==o && $2=="connected" {
+			for (i=3;i<=NF;i++)
+				if ($i ~ /^[0-9]+x[0-9]+\+[0-9]+\+[0-9]+/) {
+					split($i,a,"+"); print a[2], a[3]; exit
+				}
+		}'
+}
+
 # Translate an original-style "x1 y1 x2 y2" rectangle into an mpv --geometry
-# string WxH+X+Y. Prints nothing on malformed input.
+# string WxH+X+Y. If an xrandr output name is given as $2, the rectangle is
+# treated as relative to that output and shifted by its screen offset.
+# Prints nothing on malformed input.
 geometry_for() {
-	local rect="$1" x1 y1 x2 y2 w h
+	local rect="$1" output="${2:-}" x1 y1 x2 y2 w h ox=0 oy=0
 	read -r x1 y1 x2 y2 <<<"$rect"
 	[ -n "$x2" ] && [ -n "$y2" ] || return 1
+	if [ -n "$output" ]; then
+		read -r ox oy < <(output_offset "$output")
+		ox="${ox:-0}"; oy="${oy:-0}"
+	fi
 	w=$((x2 - x1 + 1))
 	h=$((y2 - y1 + 1))
-	echo "${w}x${h}+${x1}+${y1}"
+	echo "${w}x${h}+$((x1 + ox))+$((y1 + oy))"
 }
 
 # mpv flags derived from fill_mode
@@ -145,7 +174,7 @@ launch_tile() {
 	local sock pidf geom
 	sock="$(sock_for_window "$w")"
 	pidf="$(pidf_for_window "$w")"
-	geom="$(geometry_for "${window_positions[$w]}")"
+	geom="$(geometry_for "${window_positions[$w]}" "${window_outputs[$w]:-}")"
 	if [ -z "$geom" ]; then
 		echo "Window $w has an invalid position: '${window_positions[$w]}'" >&2
 		return 1
@@ -344,8 +373,47 @@ supervise)
 	done
 	;;
 
+# Arrange the two Pi 4 HDMI outputs into one X screen (used for dual-HDMI
+# walls). Called by displaycameras-session before the tiles start. A no-op
+# unless dual_hdmi="true". Needs a running X server (DISPLAY set).
+arrange-displays)
+	[ "$dual_hdmi" = "true" ] || exit 0
+	if ! command -v xrandr >/dev/null 2>&1; then
+		echo "xrandr not found; cannot arrange displays." >&2
+		exit 1
+	fi
+	# Auto-detect connected outputs if not configured.
+	if [ -z "$hdmi0_output" ] || [ -z "$hdmi1_output" ]; then
+		mapfile -t _connected < <(xrandr --query 2>/dev/null | awk '/ connected/{print $1}')
+		[ -z "$hdmi0_output" ] && hdmi0_output="${_connected[0]:-}"
+		[ -z "$hdmi1_output" ] && hdmi1_output="${_connected[1]:-}"
+	fi
+	if [ -z "$hdmi0_output" ] || [ -z "$hdmi1_output" ]; then
+		echo "Could not determine two connected outputs for dual-HDMI." >&2
+		echo "Set hdmi0_output/hdmi1_output in displaycameras.conf." >&2
+		exit 1
+	fi
+	# Primary output at the origin.
+	if [ -n "$hdmi0_mode" ]; then
+		xrandr --output "$hdmi0_output" --mode "$hdmi0_mode" --pos 0x0 --primary
+	else
+		xrandr --output "$hdmi0_output" --auto --pos 0x0 --primary
+	fi
+	# Second output positioned relative to the first.
+	case "$hdmi1_position" in
+		left-of|right-of|above|below) _rel="--$hdmi1_position" ;;
+		*) _rel="--right-of" ;;
+	esac
+	if [ -n "$hdmi1_mode" ]; then
+		xrandr --output "$hdmi1_output" --mode "$hdmi1_mode" "$_rel" "$hdmi0_output"
+	else
+		xrandr --output "$hdmi1_output" --auto "$_rel" "$hdmi0_output"
+	fi
+	echo "Arranged $hdmi0_output (primary) and $hdmi1_output ($hdmi1_position)."
+	;;
+
 *)
-	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|supervise}"
+	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|arrange-displays|supervise}"
 	exit 1
 	;;
 esac

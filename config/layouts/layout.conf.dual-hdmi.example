@@ -1,0 +1,61 @@
+# Dual-HDMI wall for a Raspberry Pi 4: a 3x3 grid on the first output and a
+# 2x2 grid on the second. This mirrors the classic "two grids across two HDMI
+# outputs" setup.
+#
+# Enable dual-HDMI in displaycameras.conf (dual_hdmi="true") and set the output
+# names/modes there. Tiles are tagged with the output they live on via the
+# window_outputs array below, and each tile's coordinates are RELATIVE to its
+# own output (0,0 is that display's top-left) - the service adds the screen
+# offset for you, so you never hand-compute the second display's origin.
+#
+# This example assumes:
+#   HDMI-A-1 = 3840x2160 (nine 1280x720 tiles)
+#   HDMI-A-2 = 1920x1080 (four 960x540 tiles)
+# Adjust coordinates if your displays use different resolutions.
+
+windows=(
+	a_ul a_um a_ur a_cl a_cm a_cr a_ll a_lm a_lr
+	b_ul b_ur b_ll b_lr
+)
+
+# Which xrandr output each tile belongs to (same order as windows). Must match
+# hdmi0_output / hdmi1_output in displaycameras.conf.
+window_outputs=(
+	HDMI-A-1 HDMI-A-1 HDMI-A-1 HDMI-A-1 HDMI-A-1 HDMI-A-1 HDMI-A-1 HDMI-A-1 HDMI-A-1
+	HDMI-A-2 HDMI-A-2 HDMI-A-2 HDMI-A-2
+)
+
+window_positions=(
+	# --- HDMI-A-1: 3x3 of 1280x720 on a 4K panel (coords relative to A-1) ---
+	"0 0 1279 719"        "1280 0 2559 719"        "2560 0 3839 719"      \
+	"0 720 1279 1439"     "1280 720 2559 1439"     "2560 720 3839 1439"   \
+	"0 1440 1279 2159"    "1280 1440 2559 2159"    "2560 1440 3839 2159"  \
+	# --- HDMI-A-2: 2x2 of 960x540 on 1080p (coords relative to A-2) --------
+	"0 0 959 539"         "960 0 1919 539"         \
+	"0 540 959 1079"      "960 540 1919 1079"      \
+)
+
+camera_names=(
+	Cam1 Cam2 Cam3 Cam4 Cam5 Cam6 Cam7 Cam8 Cam9
+	Cam10 Cam11 Cam12 Cam13
+)
+
+camera_feeds=(
+	"rtsp://user:pass@192.168.1.11:554/stream2"  \
+	"rtsp://user:pass@192.168.1.12:554/stream2"  \
+	"rtsp://user:pass@192.168.1.13:554/stream2"  \
+	"rtsp://user:pass@192.168.1.14:554/stream2"  \
+	"rtsp://user:pass@192.168.1.15:554/stream2"  \
+	"rtsp://user:pass@192.168.1.16:554/stream2"  \
+	"rtsp://user:pass@192.168.1.17:554/stream2"  \
+	"rtsp://user:pass@192.168.1.18:554/stream2"  \
+	"rtsp://user:pass@192.168.1.19:554/stream2"  \
+	"rtsp://user:pass@192.168.1.20:554/stream2"  \
+	"rtsp://user:pass@192.168.1.21:554/stream2"  \
+	"rtsp://user:pass@192.168.1.22:554/stream2"  \
+	"rtsp://user:pass@192.168.1.23:554/stream2"  \
+)
+
+# A static wall (no rotation) by default; set rotate="true" to cycle extra
+# cameras through the tiles.
+#rotate="true"

@@ -184,10 +184,29 @@ control/monitoring: displaycameras  ──JSON IPC──▶  each mpv tile socke
 
 ### Dual-HDMI walls (Pi 4)
 
-The Pi 4 has two HDMI outputs. Arrange them into one X screen with `xrandr`
-(e.g. place `HDMI-2` to the right of `HDMI-1`), then give tiles coordinates in
-that combined space (the second display starts at `X = width_of_first`). A
-per-output `xrandr` layout step can be added to `displaycameras-session`.
+The Pi 4 has two HDMI outputs and this is supported directly. Turn it on in
+`displaycameras.conf`:
+
+```bash
+dual_hdmi="true"
+hdmi0_output="HDMI-A-1"      # primary, at the origin (blank = auto-detect)
+hdmi1_output="HDMI-A-2"
+hdmi1_position="right-of"    # right-of | left-of | above | below
+#hdmi0_mode="3840x2160"      # optional; blank = preferred mode
+#hdmi1_mode="1920x1080"
+```
+
+At session start the service runs `xrandr` to arrange both outputs into one
+screen (`displaycameras arrange-displays`). In the layout file, add a
+`window_outputs` array naming the output for each tile; then each tile's
+`"X1 Y1 X2 Y2"` rectangle is written **relative to its own display** (0,0 is
+that display's top-left) and the service adds the screen offset automatically —
+you never hand-compute the second display's origin.
+
+See [`config/layouts/layout.conf.dual-hdmi.example`](config/layouts/layout.conf.dual-hdmi.example)
+for a 3x3-on-one-output plus 2x2-on-the-other wall. Find your output names with
+`xrandr --query`. Note that both grids share the Pi 4's single hardware
+decoder, so favor low-resolution substreams.
 
 ---
 
