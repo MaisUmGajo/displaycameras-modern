@@ -48,6 +48,12 @@ retry=5
 # this many seconds. Set to 0 to disable automatic repair.
 repair_interval=5
 
+# The supervisor also re-applies each tile's exact geometry this often (needs
+# xdotool). A stacking WM can clamp windows that span a second monitor; this
+# self-heals such drift. Moves are skipped when a window is already correct, so
+# it is cheap. Set to 0 to disable (single-monitor setups rarely need it).
+reposition_interval=10
+
 # Display autodetection (disabled by default). When true, the service reads the
 # current X resolution with xrandr and loads layout.conf.<WxH> if it exists
 # (e.g. layout.conf.1920x1080), otherwise layout.conf.default.

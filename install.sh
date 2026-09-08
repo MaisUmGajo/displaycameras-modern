@@ -43,7 +43,7 @@ apt-get update
 apt-get install -y \
 	mpv \
 	xserver-xorg xinit x11-xserver-utils \
-	openbox unclutter \
+	openbox unclutter xdotool \
 	python3
 
 # Give the kiosk user access to the GPU, DRM, and input devices.

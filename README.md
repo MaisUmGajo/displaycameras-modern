@@ -46,7 +46,7 @@ the engine for tools that are current on Bookworm:
   resolutions let you show more feeds at once.
 
 Dependencies installed automatically by `install.sh`: `mpv`, `xserver-xorg`,
-`xinit`, `x11-xserver-utils`, `openbox`, `unclutter`, `python3`.
+`xinit`, `x11-xserver-utils`, `openbox`, `unclutter`, `xdotool`, `python3`.
 
 ---
 
@@ -173,7 +173,11 @@ control/monitoring: displaycameras  ──JSON IPC──▶  each mpv tile socke
   (`dtoverlay=vc4-kms-v3d,cma-256` in `config.txt`), and keep `hwdec=auto-safe`.
   For many small tiles, `hwdec=drm-prime` can lower CPU further.
 - **Tiles aren't positioned exactly.** Openbox must be running (it is, in the
-  session) so mpv `--geometry` is honored. Check `journalctl -u displaycameras`.
+  session) so mpv `--geometry` is honored. On multi-monitor setups a stacking
+  WM can still clamp windows that span the second output, so the service also
+  re-applies each tile's exact geometry with `xdotool` after it settles and
+  every `reposition_interval` seconds. Force a re-place any time with
+  `displaycameras reposition`. Check `journalctl -u displaycameras`.
 - **A feed won't connect.** Test it directly on the Pi:
   `mpv --rtsp-transport=tcp "rtsp://…"`. Confirm the URL, credentials, and that
   TCP transport is used (many cameras drop UDP over Wi-Fi).

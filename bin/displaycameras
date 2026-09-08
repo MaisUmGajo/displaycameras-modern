@@ -90,6 +90,7 @@ feedsleep="${feedsleep:-1}"
 retry="${retry:-5}"
 rotatedelay="${rotatedelay:-5}"
 repair_interval="${repair_interval:-5}"
+reposition_interval="${reposition_interval:-10}"
 hwdec="${hwdec:-auto-safe}"
 fill_mode="${fill_mode:-letterbox}"
 vo="${vo:-gpu}"
@@ -200,6 +201,7 @@ launch_tile() {
 		--no-config \
 		--input-ipc-server="$sock" \
 		--geometry="$geom" \
+		--x11-name="dctile$w" --title="dctile$w" \
 		--autofit-larger=100%x100% \
 		--no-border --no-osc --osd-level=0 --no-input-terminal \
 		--no-input-default-bindings --input-vo-keyboard=no \
@@ -216,6 +218,35 @@ launch_tile() {
 		$(fill_flags) \
 		-- "$url" >/dev/null 2>&1 &
 	echo $! >"$pidf"
+}
+
+# Force window $1 to its exact computed geometry. A stacking WM (openbox) may
+# clamp a client's requested position when it spans a second monitor, so after
+# the window maps we move/resize it explicitly (which the WM honors). Requires
+# xdotool and a running X server; a no-op without them.
+place_window() {
+	local w="$1" geom rest wd ht x y wid tries=0
+	command -v xdotool >/dev/null 2>&1 || return 0
+	[ -n "$DISPLAY" ] || return 0
+	geom="$(geometry_for "${window_positions[$w]}" "${window_outputs[$w]:-}")"
+	[ -n "$geom" ] || return 0
+	wd="${geom%%x*}"; rest="${geom#*x}"
+	ht="${rest%%+*}"; rest="${rest#*+}"
+	x="${rest%%+*}"; y="${rest##*+}"
+	# Wait for the window to appear (matched by its unique x11 name).
+	while [ "$tries" -lt 20 ]; do
+		wid="$(xdotool search --classname "dctile$w" 2>/dev/null | head -n1)"
+		[ -n "$wid" ] && break
+		sleep 0.25; tries=$((tries + 1))
+	done
+	[ -n "$wid" ] || return 0
+	# Skip if already correctly placed, so this can run often without churn.
+	local X Y WIDTH HEIGHT SCREEN WINDOW
+	eval "$(xdotool getwindowgeometry --shell "$wid" 2>/dev/null)"
+	if [ "$X" = "$x" ] && [ "$Y" = "$y" ] && [ "$WIDTH" = "$wd" ] && [ "$HEIGHT" = "$ht" ]; then
+		return 0
+	fi
+	xdotool windowsize "$wid" "$wd" "$ht" windowmove --sync "$wid" "$x" "$y" 2>/dev/null
 }
 
 # Is the mpv for window $1 alive and actively playing a feed?
@@ -274,6 +305,11 @@ start)
 		sleep "$feedsleep"
 	done
 	touch "$PIDFILE"
+	# Now that the tiles have settled, force each to its exact geometry. A
+	# stacking WM can clamp windows that span a second monitor; this fixes it.
+	for w in $(seq 0 $((nwin - 1))); do
+		place_window "$w"
+	done
 	echo "Camera display started. Run 'displaycameras status' for details."
 	;;
 
@@ -307,6 +343,7 @@ restart)
 # Reconnect/relaunch any tile that is not actively playing.
 repair)
 	[ -f "$PIDFILE" ] || exit 0
+	relaunched=false
 	for w in $(seq 0 $((nwin - 1))); do
 		if tile_playing "$w"; then
 			continue
@@ -317,11 +354,20 @@ repair)
 			# mpv is up but idle/stalled: just reload the feed in place.
 			"$IPC" loadfile "$(sock_for_window "$w")" "$url" 2>/dev/null
 		else
-			# mpv died: bring the tile back.
+			# mpv died: bring the tile back. Repositioning happens after it
+			# settles (below, and via the supervise loop).
 			echo "Relaunching tile $w -> ${camera_names[$ci]}"
 			launch_tile "$w" "$url"
+			relaunched=true
 		fi
 	done
+	# Reposition after any relaunch (give the new window a moment to settle).
+	if [ "$relaunched" = "true" ]; then
+		sleep "$startsleep"
+		for w in $(seq 0 $((nwin - 1))); do
+			place_window "$w"
+		done
+	fi
 	;;
 
 # Advance the rotation one step and reassign feeds to the fixed tiles.
@@ -378,6 +424,9 @@ supervise)
 		if [ "$repair_interval" -gt 0 ] && [ $((tick % repair_interval)) -eq 0 ]; then
 			"$0" repair
 		fi
+		if [ "$reposition_interval" -gt 0 ] && [ $((tick % reposition_interval)) -eq 0 ]; then
+			"$0" reposition
+		fi
 		if [ "$rotate" = "true" ] && [ "$rotatedelay" -gt 0 ] && [ $((tick % rotatedelay)) -eq 0 ]; then
 			if [ "$seq_step" -gt 1 ]; then
 				"$0" rotaterev
@@ -385,6 +434,14 @@ supervise)
 				"$0" rotate
 			fi
 		fi
+	done
+	;;
+
+# Re-apply every tile's exact geometry (fixes any WM placement drift).
+reposition)
+	[ -f "$PIDFILE" ] || exit 0
+	for w in $(seq 0 $((nwin - 1))); do
+		place_window "$w"
 	done
 	;;
 
@@ -428,7 +485,7 @@ arrange-displays)
 	;;
 
 *)
-	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|arrange-displays|supervise}"
+	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|reposition|arrange-displays|supervise}"
 	exit 1
 	;;
 esac
