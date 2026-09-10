@@ -1,0 +1,24 @@
+displaycameras-modern
+Copyright 2026 Miguel Costa
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this project except in compliance with the License. You may obtain a copy of
+the License in the LICENSE file or at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+------------------------------------------------------------------------------
+
+This project is a modernized reimplementation of the "displaycameras" project
+by Anonymousdog:
+
+    https://github.com/Anonymousdog/displaycameras
+
+which is also licensed under the Apache License, Version 2.0.
+
+It reuses that project's configuration-file format and command-line interface,
+and is otherwise substantially rewritten to run on current Raspberry Pi OS
+(Bookworm/Trixie): it replaces omxplayer + dispmanx + fbi + D-Bus with mpv on
+the KMS/DRM graphics stack, adds a low-power ("lite") single-camera backend for
+ARMv6 boards, and adds dual-HDMI support. These are significant changes from
+the original work.

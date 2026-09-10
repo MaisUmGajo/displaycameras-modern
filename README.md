@@ -244,3 +244,7 @@ decoder, so favor low-resolution substreams.
 Original concept and configuration design:
 [Anonymousdog/displaycameras](https://github.com/Anonymousdog/displaycameras).
 This modernized port preserves that project's CLI and config conventions.
+
+Licensed under the **Apache License 2.0** (the same license as the original) —
+see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Copyright 2026 Miguel Costa;
+this is a substantially rewritten reimplementation of the original work.
