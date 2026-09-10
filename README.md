@@ -38,15 +38,40 @@ the engine for tools that are current on Bookworm:
 
 ## Requirements
 
-- Raspberry Pi 4 (or 400/CM4).
-- Raspberry Pi OS **Bookworm**, 64-bit recommended. The **Lite** image is ideal
-  (this project brings its own minimal X session); the Desktop image also works.
+- A Raspberry Pi. Best on a **Pi 4** (or 400/CM4); low-power boards are
+  supported by a lighter backend — see below.
+- Raspberry Pi OS **Bookworm** (or newer), Lite image ideal.
 - One or more RTSP-capable cameras/NVR. Prefer each camera's **low-resolution
-  substream** — the Pi 4 has a single shared hardware video decoder, so lower
-  resolutions let you show more feeds at once.
+  substream** — the Pi has a single shared hardware video decoder, so lower
+  resolutions let you show more feeds (and are essential on the small boards).
 
-Dependencies installed automatically by `install.sh`: `mpv`, `xserver-xorg`,
-`xinit`, `x11-xserver-utils`, `openbox`, `unclutter`, `xdotool`, `python3`.
+---
+
+## Board support — two backends
+
+The installer detects the board and picks a render backend; you can override it
+with `sudo ./install.sh --backend full|lite`. Run `displaycameras detect` to see
+what a board would choose.
+
+| | `full` | `lite` |
+| --- | --- | --- |
+| **Boards** | Pi 4/5 (Pi 2/3 by default) | **Pi Zero / Zero W / Pi 1** (ARMv6) |
+| **Display** | X11 + Openbox, one **mpv per tile** | one **fullscreen mpv straight to KMS** (`--vo=drm`), no X |
+| **Layout** | multi-tile grids, optional dual-HDMI | **one camera at a time**, rotating through the list |
+| **Extra packages** | xserver-xorg, xinit, openbox, xdotool, unclutter | none beyond `mpv` + `python3` |
+
+Both backends share the **same config format**, the same IPC control, and the
+same `rotate`/`repair`/`supervise` logic — the `lite` backend simply drives a
+single fullscreen tile and ignores `window_positions`/`window_outputs`/
+`dual_hdmi`. So a Pi Zero config is just a camera list with `rotate="true"`.
+
+> On ARMv6 boards, expect **one low-resolution substream** at a time — the
+> single-core CPU and VideoCore IV are the limit. See
+> [`docs/hardware-test-plan.md`](docs/hardware-test-plan.md) for tuning.
+
+Dependencies installed automatically by `install.sh`: `mpv` + `python3` always,
+plus (full backend only) `xserver-xorg`, `xinit`, `x11-xserver-utils`,
+`openbox`, `unclutter`, `xdotool`.
 
 ---
 

@@ -1,0 +1,24 @@
+# Camera list for the LITE backend (single fullscreen camera, rotating).
+# Installed to /etc/displaycameras/layout.conf.default
+#
+# The lite backend ignores windows / window_positions / window_outputs /
+# dual_hdmi entirely - only camera_names, camera_feeds, and rotate/seq_step
+# matter. One camera is shown fullscreen at a time; with rotate="true" the
+# service cycles through the whole list (dwell time = rotatedelay in
+# displaycameras.conf).
+#
+# Prefer each camera's LOW-resolution substream - a Pi Zero/1 can realistically
+# hardware-decode only a modest resolution.
+
+camera_names=(Front Back Drive Yard)
+
+camera_feeds=(
+	"rtsp://user:pass@192.168.1.11:554/stream2"  \
+	"rtsp://user:pass@192.168.1.12:554/stream2"  \
+	"rtsp://user:pass@192.168.1.13:554/stream2"  \
+	"rtsp://user:pass@192.168.1.14:554/stream2"  \
+)
+
+# Cycle through the cameras (set rotatedelay in displaycameras.conf).
+rotate="true"
+seq_step=1

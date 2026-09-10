@@ -1,0 +1,29 @@
+[Unit]
+Description=displaycameras RTSP camera display (lite / DRM, no X)
+Documentation=https://github.com/Anonymousdog/displaycameras
+After=network-online.target systemd-user-sessions.target
+Wants=network-online.target
+# Take over tty1 from the login getty so mpv can own the console/DRM.
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+Type=simple
+# The installer rewrites this User= line to the account you choose.
+User=pi
+PAMName=login
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+UnsetEnvironment=TERM
+# Create /run/displaycameras (owned by User=) for IPC sockets/PID/sequence.
+RuntimeDirectory=displaycameras
+RuntimeDirectoryMode=0755
+# No X server: mpv --vo=drm renders straight to KMS on tty1.
+ExecStart=/usr/local/bin/displaycameras-run-drm
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

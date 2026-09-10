@@ -12,16 +12,19 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-echo "Stopping and disabling the service..."
-systemctl stop displaycameras.service 2>/dev/null || true
-systemctl disable displaycameras.service 2>/dev/null || true
-rm -f /etc/systemd/system/displaycameras.service
+echo "Stopping and disabling the service (both backends)..."
+for unit in displaycameras.service displaycameras-drm.service; do
+	systemctl stop "$unit" 2>/dev/null || true
+	systemctl disable "$unit" 2>/dev/null || true
+	rm -f "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
 
 echo "Removing scripts..."
 rm -f /usr/local/bin/displaycameras \
       /usr/local/bin/displaycameras-ipc \
-      /usr/local/bin/displaycameras-session
+      /usr/local/bin/displaycameras-session \
+      /usr/local/bin/displaycameras-run-drm
 
 # Leave /etc/X11/Xwrapper.config in place; other tools may rely on it.
 

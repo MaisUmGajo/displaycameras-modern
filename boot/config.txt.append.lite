@@ -1,0 +1,17 @@
+# --- displaycameras (lite) recommended settings --------------------------
+# For low-power boards (Raspberry Pi Zero / Zero W / Pi 1). Append to
+# /boot/firmware/config.txt (Bookworm) or /boot/config.txt (older), reboot.
+
+# KMS driver (required for mpv --vo=drm and hardware decode).
+dtoverlay=vc4-kms-v3d
+
+# Reserve enough memory for the VideoCore H.264 decoder on a 512 MB board.
+# (Do NOT copy the Pi 4's large CMA setting here - these boards have far less
+# RAM.)
+gpu_mem=128
+
+# Force an HDMI mode if the display isn't detected correctly (e.g. 1080p).
+# Leave commented to auto-detect.
+#hdmi_group=1
+#hdmi_mode=16
+# --------------------------------------------------------------------------

@@ -1,0 +1,19 @@
+#!/bin/bash
+# displaycameras-run-drm - lite backend entrypoint (no X server).
+#
+# Runs on a console VT; mpv --vo=drm becomes the DRM master and draws the
+# camera fullscreen. Started by displaycameras-drm.service. When the supervisor
+# exits (or is killed), the service restarts it.
+
+DC=/usr/local/bin/displaycameras
+[ -x "$DC" ] || DC="$(dirname "$(readlink -f "$0")")/displaycameras"
+
+# Stop console blanking/power-down and hide the text cursor so nothing shows
+# behind the video. Writes escape sequences to the VT we're attached to.
+setterm --blank 0 --powerdown 0 --cursor off >/dev/tty1 2>/dev/null || true
+# Blank the console framebuffer text (best effort).
+printf '\033[2J\033[H' >/dev/tty1 2>/dev/null || true
+
+# Start the (single) camera and hand off to the supervisor in the foreground.
+"$DC" start
+exec "$DC" supervise

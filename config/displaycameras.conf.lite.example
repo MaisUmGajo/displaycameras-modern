@@ -1,0 +1,45 @@
+# Global configuration for the displaycameras service - LITE backend.
+#
+# For low-power boards (Raspberry Pi Zero / Zero W / Pi 1): a single fullscreen
+# camera rendered straight to KMS (no X server), cycling through the camera
+# list. Camera names/feeds and rotation live in layout.conf.default.
+#
+# Installed to /etc/displaycameras/displaycameras.conf
+
+#### Backend
+
+# lite = single fullscreen camera via DRM (no X). auto lets the board decide;
+# it resolves to lite on ARMv6 boards. Force it here if needed.
+backend=lite
+
+#### Global options
+
+# Network timeout, in seconds, for establishing/holding a feed (mpv).
+net_timeout=30
+
+# Hardware decoding (mpv --hwdec). On VideoCore IV boards (Pi Zero/1) the useful
+# values are auto-safe (recommended default), v4l2m2m-copy (force the bcm2835
+# hardware H.264 decoder), drm-prime (zero-copy), or no (software - only viable
+# for very low resolutions on these single-core boards). Tune on hardware.
+hwdec=auto-safe
+
+# Video output. 'drm' renders directly to the display with no X server.
+vo=drm
+
+# How the feed fills the screen: letterbox (default) | stretch | crop
+fill_mode=letterbox
+
+# Startup pacing (seconds).
+startsleep=3
+feedsleep=1
+retry=5
+
+# The supervisor re-checks and repairs a stalled/dead feed this often (seconds).
+repair_interval=5
+
+# Window repositioning is not used on the lite backend (no windows).
+reposition_interval=0
+
+# Seconds each camera is shown before rotating to the next (see rotate in the
+# layout file). On a single-camera board, rotation is the whole point.
+rotatedelay=8
