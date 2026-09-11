@@ -206,6 +206,13 @@ control/monitoring: displaycameras  ──JSON IPC──▶  each mpv tile socke
 - **A feed won't connect.** Test it directly on the Pi:
   `mpv --rtsp-transport=tcp "rtsp://…"`. Confirm the URL, credentials, and that
   TCP transport is used (many cameras drop UDP over Wi-Fi).
+- **One tile goes half-blurry and stays that way.** A packet glitch corrupted an
+  H.264 reference frame; the tile keeps "playing" so it never reconnects on its
+  own. The **watchdog** (`watchdog_interval`/`error_reload_threshold`) detects
+  the decode-error spike and reconnects the tile to grab a clean keyframe. It's
+  most common on high-bitrate feeds over a WAN/tunnel — prefer a **substream**
+  (lower resolution) for those, which cuts the data and the glitch rate.
+  Force a reconnect any time with `displaycameras watchdog` (or restart).
 - **Black screen at boot.** Ensure `dtoverlay=vc4-kms-v3d` is in `config.txt`
   and the kiosk user is in the `video`/`render` groups (the installer does
   this — re-login or reboot after first install).

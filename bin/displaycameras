@@ -11,7 +11,7 @@
 #          through the camera list. For low-power ARMv6 boards (Pi Zero/1).
 # CLI verbs and config schema are kept compatible with the original.
 #
-# version: 1.1.0
+# version: 1.2.0
 
 set -o pipefail
 
@@ -114,6 +114,12 @@ retry="${retry:-5}"
 rotatedelay="${rotatedelay:-5}"
 repair_interval="${repair_interval:-5}"
 reposition_interval="${reposition_interval:-10}"
+# Self-heal watchdog: reconnect a tile when its decoder error count jumps (a
+# corrupt/glitched stream keeps "playing" so normal repair never touches it).
+# Reconnect if decode errors rise by >= threshold within a watchdog interval.
+# Set watchdog_interval=0 to disable.
+watchdog_interval="${watchdog_interval:-15}"
+error_reload_threshold="${error_reload_threshold:-10}"
 hwdec="${hwdec:-auto-safe}"
 fill_mode="${fill_mode:-letterbox}"
 seq_step="${seq_step:-1}"
@@ -487,12 +493,43 @@ supervise)
 		if [ "$backend" = "full" ] && [ "$reposition_interval" -gt 0 ] && [ $((tick % reposition_interval)) -eq 0 ]; then
 			"$0" reposition
 		fi
+		if [ "$watchdog_interval" -gt 0 ] && [ $((tick % watchdog_interval)) -eq 0 ]; then
+			"$0" watchdog
+		fi
 		if [ "$rotate" = "true" ] && [ "$rotatedelay" -gt 0 ] && [ $((tick % rotatedelay)) -eq 0 ]; then
 			if [ "$seq_step" -gt 1 ]; then
 				"$0" rotaterev
 			else
 				"$0" rotate
 			fi
+		fi
+	done
+	;;
+
+# Reconnect any tile whose decoder is throwing errors (a corrupt/glitched
+# stream keeps "playing" - frames still advance - so repair never touches it,
+# and the corruption can persist for a long time until a clean keyframe is
+# forced by reconnecting). We reconnect when the decoder error count jumps by
+# at least error_reload_threshold since the last check.
+watchdog)
+	[ -f "$PIDFILE" ] || exit 0
+	[ "$error_reload_threshold" -gt 0 ] 2>/dev/null || exit 0
+	for w in $(seq 0 $((nwin - 1))); do
+		sock="$(sock_for_window "$w")"
+		[ -S "$sock" ] || continue
+		cur="$("$IPC" getprop "$sock" decoder-frame-drop-count 2>/dev/null)"
+		[ -n "$cur" ] || continue
+		f="$RUN_DIR/win-$w.derr"
+		prev="$(cat "$f" 2>/dev/null)"; [ -n "$prev" ] || prev=0
+		# If the counter went backwards (mpv reloaded), just re-baseline.
+		if [ "$cur" -lt "$prev" ] 2>/dev/null; then echo "$cur" >"$f"; continue; fi
+		if [ "$cur" -ge "$((prev + error_reload_threshold))" ] 2>/dev/null; then
+			ci="$(cam_for_window "$w")"
+			echo "Watchdog: tile $w (${camera_names[$ci]}) decode errors +$((cur - prev)); reconnecting"
+			"$IPC" loadfile "$sock" "${camera_feeds[$ci]}" 2>/dev/null
+			echo 0 >"$f"   # counter resets to 0 after a reload
+		else
+			echo "$cur" >"$f"
 		fi
 	done
 	;;
@@ -546,7 +583,7 @@ arrange-displays)
 	;;
 
 *)
-	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|reposition|arrange-displays|supervise|detect}"
+	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|reposition|watchdog|arrange-displays|supervise|detect}"
 	exit 1
 	;;
 esac
