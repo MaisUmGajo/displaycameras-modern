@@ -43,9 +43,9 @@ retry=5
 # The supervisor re-checks and repairs a stalled/dead feed this often (seconds).
 repair_interval=5
 
-# Self-heal watchdog: reconnect the feed if its decoder error count jumps by at
-# least error_reload_threshold within watchdog_interval seconds (clears a
-# persistently corrupt picture that still "plays"). Set interval 0 to disable.
+# Self-heal watchdog: every watchdog_interval seconds, reconnect the feed if it
+# is corrupt (decoder errors rose by >= error_reload_threshold) or frozen
+# (time-pos stopped advancing - a silently stalled stream). Set interval 0 off.
 watchdog_interval=15
 error_reload_threshold=10
 

@@ -11,7 +11,7 @@
 #          through the camera list. For low-power ARMv6 boards (Pi Zero/1).
 # CLI verbs and config schema are kept compatible with the original.
 #
-# version: 1.2.0
+# version: 1.3.0
 
 set -o pipefail
 
@@ -114,9 +114,10 @@ retry="${retry:-5}"
 rotatedelay="${rotatedelay:-5}"
 repair_interval="${repair_interval:-5}"
 reposition_interval="${reposition_interval:-10}"
-# Self-heal watchdog: reconnect a tile when its decoder error count jumps (a
-# corrupt/glitched stream keeps "playing" so normal repair never touches it).
-# Reconnect if decode errors rise by >= threshold within a watchdog interval.
+# Self-heal watchdog: every watchdog_interval seconds, reconnect a tile that is
+# still "playing" (so normal repair ignores it) but is either (a) throwing decode
+# errors - a corrupt/blurry picture - at >= error_reload_threshold per interval,
+# or (b) frozen: its time-pos has stopped advancing (a silently stalled stream).
 # Set watchdog_interval=0 to disable.
 watchdog_interval="${watchdog_interval:-15}"
 error_reload_threshold="${error_reload_threshold:-10}"
@@ -532,23 +533,46 @@ supervise)
 # at least error_reload_threshold since the last check.
 watchdog)
 	[ -f "$PIDFILE" ] || exit 0
-	[ "$error_reload_threshold" -gt 0 ] 2>/dev/null || exit 0
 	for w in $(seq 0 $((nwin - 1))); do
 		sock="$(sock_for_window "$w")"
 		[ -S "$sock" ] || continue
-		cur="$("$IPC" getprop "$sock" decoder-frame-drop-count 2>/dev/null)"
-		[ -n "$cur" ] || continue
-		f="$RUN_DIR/win-$w.derr"
-		prev="$(cat "$f" 2>/dev/null)"; [ -n "$prev" ] || prev=0
-		# If the counter went backwards (mpv reloaded), just re-baseline.
-		if [ "$cur" -lt "$prev" ] 2>/dev/null; then echo "$cur" >"$f"; continue; fi
-		if [ "$cur" -ge "$((prev + error_reload_threshold))" ] 2>/dev/null; then
-			ci="$(cam_for_window "$w")"
-			echo "Watchdog: tile $w (${camera_names[$ci]}) decode errors +$((cur - prev)); reconnecting"
+		# Only manage tiles that claim to be playing; idle/dead ones are repair's job.
+		[ "$("$IPC" getprop "$sock" idle-active 2>/dev/null)" = "false" ] || continue
+		ci="$(cam_for_window "$w")"
+		reason=""
+
+		# (1) Decode-error burst -> stream corruption (e.g. "half the image
+		# blurry"). Reconnect if errors rose by >= error_reload_threshold.
+		if [ "$error_reload_threshold" -gt 0 ] 2>/dev/null; then
+			cur="$("$IPC" getprop "$sock" decoder-frame-drop-count 2>/dev/null)"
+			f="$RUN_DIR/win-$w.derr"; prev="$(cat "$f" 2>/dev/null)"; [ -n "$prev" ] || prev=0
+			if [ -n "$cur" ]; then
+				if [ "$cur" -lt "$prev" ] 2>/dev/null; then echo "$cur" >"$f"
+				elif [ "$cur" -ge "$((prev + error_reload_threshold))" ] 2>/dev/null; then reason="decode errors +$((cur - prev))"
+				else echo "$cur" >"$f"; fi
+			fi
+		fi
+
+		# (2) Frozen stream: time-pos not advancing between checks though the
+		# tile still reports "playing" (a silently stalled RTSP/TCP connection -
+		# "frozen in time"). repair can't see it (it looks like it's playing) and
+		# it never self-heals; a reconnect grabs a fresh, live stream.
+		if [ -z "$reason" ]; then
+			tp="$("$IPC" getprop "$sock" time-pos 2>/dev/null)"
+			tf="$RUN_DIR/win-$w.tpos"; ptp="$(cat "$tf" 2>/dev/null)"
+			if [ -n "$tp" ]; then
+				itp="${tp%.*}"; iptp="${ptp%.*}"
+				if [ -n "$ptp" ] && [ "$((itp - iptp))" -eq 0 ] 2>/dev/null; then
+					reason="frozen (time-pos ~${itp}s)"
+				fi
+				echo "$tp" >"$tf"   # re-baseline (also covers reset/rotation: delta<0)
+			fi
+		fi
+
+		if [ -n "$reason" ]; then
+			echo "Watchdog: tile $w (${camera_names[$ci]}) $reason; reconnecting"
 			"$IPC" loadfile "$sock" "${camera_feeds[$ci]}" 2>/dev/null
-			echo 0 >"$f"   # counter resets to 0 after a reload
-		else
-			echo "$cur" >"$f"
+			echo 0 >"$RUN_DIR/win-$w.derr"; rm -f "$RUN_DIR/win-$w.tpos"
 		fi
 	done
 	;;

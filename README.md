@@ -213,6 +213,12 @@ control/monitoring: displaycameras  ──JSON IPC──▶  each mpv tile socke
   most common on high-bitrate feeds over a WAN/tunnel — prefer a **substream**
   (lower resolution) for those, which cuts the data and the glitch rate.
   Force a reconnect any time with `displaycameras watchdog` (or restart).
+- **A tile is frozen — a still image that never updates ("frozen in time").**
+  The RTSP/TCP connection stalled silently (data stopped but the socket stayed
+  open), so mpv shows the last frame at ~0% CPU while still reporting "playing" —
+  invisible to `repair`. Common on long-lived NVR connections over a tunnel. The
+  **watchdog** also detects this (time-pos not advancing) and reconnects the tile
+  to a fresh, live stream. Same knobs as above.
 - **Black screen at boot.** Ensure `dtoverlay=vc4-kms-v3d` is in `config.txt`
   and the kiosk user is in the `video`/`render` groups (the installer does
   this — re-login or reboot after first install).
