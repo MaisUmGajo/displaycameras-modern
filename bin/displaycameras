@@ -133,7 +133,9 @@ if [ "$backend" = "auto" ]; then backend="$(detect_backend)"; fi
 # H.264 decode to the VideoCore even on a Pi Zero (measured ~15-20% of one core
 # for 640x360-1024x576, vs ~50-80% in software).
 if [ "$backend" = "lite" ]; then
-	vo="${vo:-drm}"; hwdec="${hwdec:-v4l2m2m-copy}"
+	# gpu + gpu-context=drm (added at launch) renders/scales on the VideoCore
+	# GPU; plain --vo=drm scales in software and stalls weak boards.
+	vo="${vo:-gpu}"; hwdec="${hwdec:-v4l2m2m-copy}"
 else
 	vo="${vo:-gpu}"; hwdec="${hwdec:-auto-safe}"
 fi
@@ -240,18 +242,23 @@ launch_tile() {
 	rm -f "$sock"
 
 	if [ "$backend" = "lite" ]; then
-		# Lite: one fullscreen render straight to KMS - no X, no window
-		# geometry, no window manager.
+		# Lite: one fullscreen render to KMS - no X, no window manager. Use the
+		# GPU present path (--vo=gpu --gpu-context=drm): plain --vo=drm scales in
+		# software and stalls weak boards. --profile=fast keeps a Pi Zero real
+		# time (negligible quality loss on a small display). hwdec offloads the
+		# H.264 decode to the VideoCore.
+		local gpuctx=()
+		[ "$vo" = "gpu" ] && gpuctx=(--gpu-context="${gpu_context:-drm}")
 		# shellcheck disable=SC2046
 		mpv \
 			--no-config \
 			--input-ipc-server="$sock" \
-			--vo="$vo" \
+			--vo="$vo" "${gpuctx[@]}" \
 			--hwdec="$hwdec" \
+			--profile=low-latency --profile=fast \
 			--no-audio \
 			--force-window=yes --idle=yes --keep-open=no \
 			--no-input-terminal --no-input-default-bindings \
-			--profile=low-latency \
 			--cache=no \
 			--network-timeout="$net_timeout" \
 			--rtsp-transport=tcp \

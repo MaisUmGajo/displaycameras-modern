@@ -24,8 +24,13 @@ net_timeout=30
 # ~50-80% in software. Alternatives: no (software), drm-prime (zero-copy).
 hwdec=v4l2m2m-copy
 
-# Video output. 'drm' renders directly to the display with no X server.
-vo=drm
+# Video output. Use 'gpu' - the service adds --gpu-context=drm so it renders and
+# scales on the VideoCore GPU with no X server. (Plain 'drm' scales in software
+# and stalls weak boards like the Pi Zero.) The lite backend also applies
+# mpv --profile=fast automatically for real-time playback on slow GPUs.
+# Tip: on a Pi Zero W, a 640x360 substream runs ~33% of the core; 1024x576 works
+# but uses ~70%+. Prefer the lower-res substream for headroom.
+vo=gpu
 
 # How the feed fills the screen: letterbox (default) | stretch | crop
 fill_mode=letterbox
