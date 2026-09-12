@@ -120,7 +120,6 @@ reposition_interval="${reposition_interval:-10}"
 # Set watchdog_interval=0 to disable.
 watchdog_interval="${watchdog_interval:-15}"
 error_reload_threshold="${error_reload_threshold:-10}"
-hwdec="${hwdec:-auto-safe}"
 fill_mode="${fill_mode:-letterbox}"
 seq_step="${seq_step:-1}"
 blank="${blank:-true}"
@@ -128,8 +127,16 @@ blank="${blank:-true}"
 # Render backend: auto | full | lite. 'auto' picks from the board.
 backend="${backend:-auto}"
 if [ "$backend" = "auto" ]; then backend="$(detect_backend)"; fi
-# Video output default depends on the backend (X11 gpu vs direct KMS).
-if [ "$backend" = "lite" ]; then vo="${vo:-drm}"; else vo="${vo:-gpu}"; fi
+# Video output and hardware decoder defaults depend on the backend. Note that
+# mpv's "auto-safe" does NOT engage the Pi's V4L2 decoder (it only probes
+# desktop hwdecs), so the lite backend defaults to v4l2m2m-copy, which offloads
+# H.264 decode to the VideoCore even on a Pi Zero (measured ~15-20% of one core
+# for 640x360-1024x576, vs ~50-80% in software).
+if [ "$backend" = "lite" ]; then
+	vo="${vo:-drm}"; hwdec="${hwdec:-v4l2m2m-copy}"
+else
+	vo="${vo:-gpu}"; hwdec="${hwdec:-auto-safe}"
+fi
 
 # Dual-HDMI (Pi 4 has two outputs). When enabled, arrange-displays lays the two
 # outputs out as one X screen; layouts may assign tiles to an output via the

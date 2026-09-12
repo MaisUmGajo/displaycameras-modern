@@ -17,11 +17,12 @@ backend=lite
 # Network timeout, in seconds, for establishing/holding a feed (mpv).
 net_timeout=30
 
-# Hardware decoding (mpv --hwdec). On VideoCore IV boards (Pi Zero/1) the useful
-# values are auto-safe (recommended default), v4l2m2m-copy (force the bcm2835
-# hardware H.264 decoder), drm-prime (zero-copy), or no (software - only viable
-# for very low resolutions on these single-core boards). Tune on hardware.
-hwdec=auto-safe
+# Hardware decoding (mpv --hwdec). IMPORTANT: on the Pi, mpv's "auto-safe" does
+# NOT engage the VideoCore decoder (it only probes desktop hwdecs) and falls
+# back to software. Use v4l2m2m-copy to actually offload H.264 to the hardware
+# - measured ~15-20% of one core on a Pi Zero W for 640x360-1024x576, vs
+# ~50-80% in software. Alternatives: no (software), drm-prime (zero-copy).
+hwdec=v4l2m2m-copy
 
 # Video output. 'drm' renders directly to the display with no X server.
 vo=drm
