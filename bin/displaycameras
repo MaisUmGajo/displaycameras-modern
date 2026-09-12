@@ -11,7 +11,7 @@
 #          through the camera list. For low-power ARMv6 boards (Pi Zero/1).
 # CLI verbs and config schema are kept compatible with the original.
 #
-# version: 1.3.0
+# version: 1.4.0
 
 set -o pipefail
 
@@ -501,6 +501,63 @@ positions)
 	done
 	;;
 
+# Connection health: per-endpoint reachability/latency, Tailscale direct-vs-relay
+# (relay = throughput-capped), measured incoming throughput, and per-tile
+# real-time playback % if the wall is running. Read-only; needs no root/display.
+netcheck)
+	echo "=== displaycameras netcheck ($(date '+%H:%M:%S')) ==="
+	echo "backend=$backend  cameras=$cameras  tiles=$nwin"
+	have_ts=false; command -v tailscale >/dev/null 2>&1 && have_ts=true
+	# Unique host:port from the feeds.
+	endpoints="$(printf '%s\n' "${camera_feeds[@]}" | sed -E 's#^[a-z]+://##; s#/.*##; s#.*@##' | sort -u)"
+	echo
+	echo "--- Camera endpoints ---"
+	for e in $endpoints; do
+		host="${e%%:*}"; port="${e##*:}"; [ "$port" = "$host" ] && port=554
+		po="$(ping -c 3 -W 2 "$host" 2>/dev/null)"
+		loss="$(printf '%s' "$po" | sed -nE 's/.*, ([0-9]+%) packet loss.*/\1/p')"
+		rtt="$(printf '%s' "$po" | sed -nE 's#.* = [0-9.]+/([0-9.]+)/.*#\1ms#p')"
+		if timeout 3 bash -c "cat </dev/null >/dev/tcp/$host/$port" 2>/dev/null; then tcp="open"; else tcp="CLOSED"; fi
+		ts="-"
+		if $have_ts; then
+			ts="$(tailscale ping --c 1 --timeout 3s "$host" 2>/dev/null | grep -oE 'via (DERP\([^)]*\)|[0-9.]+:[0-9]+)' | head -1)"
+			[ -z "$ts" ] && ts="n/a"
+		fi
+		printf "  %-15s tcp/%-5s=%-6s loss=%-4s rtt=%-8s tailscale=%s\n" \
+			"$host" "$port" "$tcp" "${loss:-?}" "${rtt:-?}" "$ts"
+	done
+	if $have_ts; then
+		relayed="$(tailscale status 2>/dev/null | grep -c 'relay ')"
+		echo
+		echo "--- Tailscale: $([ "$relayed" -gt 0 ] && echo "$relayed peer(s) RELAYED (throughput-capped)" || echo "no relayed peers (good)") ---"
+	fi
+	# Incoming throughput on the interface toward the first endpoint.
+	fh="$(printf '%s' "$endpoints" | head -1)"; fh="${fh%%:*}"
+	iface="$(ip route get "$fh" 2>/dev/null | grep -oE 'dev [^ ]+' | awk '{print $2}' | head -1)"
+	if [ -n "$iface" ] && [ -r "/sys/class/net/$iface/statistics/rx_bytes" ]; then
+		r1="$(cat "/sys/class/net/$iface/statistics/rx_bytes")"; sleep 5
+		r2="$(cat "/sys/class/net/$iface/statistics/rx_bytes")"
+		kbps=$(( (r2 - r1) * 8 / 5 / 1000 ))
+		echo
+		echo "--- Incoming on $iface: ${kbps} kbps (~$((kbps / 1000)) Mbps) over 5s ---"
+	fi
+	# Per-tile real-time playback, if the wall is running.
+	if [ -f "$PIDFILE" ]; then
+		echo
+		echo "--- Per-tile playback (realtime% over 6s; <50% = struggling) ---"
+		declare -A _t0 _w0
+		for w in $(seq 0 $((nwin - 1))); do s="$(sock_for_window "$w")"; [ -S "$s" ] || continue
+			_t0[$w]="$("$IPC" getprop "$s" time-pos 2>/dev/null)"; _w0[$w]="$(date +%s)"; done
+		sleep 6
+		for w in $(seq 0 $((nwin - 1))); do s="$(sock_for_window "$w")"; [ -S "$s" ] || continue
+			ci="$(cam_for_window "$w")"; b="$("$IPC" getprop "$s" time-pos 2>/dev/null)"; el=$(( $(date +%s) - ${_w0[$w]} ))
+			rt="$(awk -v b="$b" -v a="${_t0[$w]:-}" -v e="$el" 'BEGIN{if(e>0&&a!="")printf "%d",(b-a)/e*100; else print "?"}')"
+			flag=""; [ "$rt" -lt 50 ] 2>/dev/null && flag="  <-- slow"
+			printf "  tile %-2s %-14s %s%%%s\n" "$w" "${camera_names[$ci]}" "$rt" "$flag"
+		done
+	fi
+	;;
+
 # Foreground supervisor: keeps the session alive and periodically repairs
 # tiles and (optionally) rotates feeds. Started by the session/runner.
 # Uses real elapsed time (not a loop counter): on slow boards each iteration
@@ -645,7 +702,7 @@ arrange-displays)
 	;;
 
 *)
-	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|reposition|watchdog|arrange-displays|supervise|detect}"
+	echo "Usage: displaycameras {start|stop|restart|repair|status|positions|rotate|rotaterev|reposition|watchdog|arrange-displays|supervise|detect|netcheck}"
 	exit 1
 	;;
 esac

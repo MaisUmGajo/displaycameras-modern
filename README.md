@@ -166,12 +166,21 @@ displaycameras status       # per-tile playing / not playing
 displaycameras positions    # per-tile playback time
 displaycameras rotate       # advance the rotation one step
 displaycameras repair       # reconnect any stalled/dead tile
+displaycameras netcheck     # connection health (see below)
 sudo systemctl restart displaycameras
 ```
 
 Verbs: `start | stop | restart | repair | status | positions | rotate |
-rotaterev | supervise`. (`supervise` is the foreground loop the session runs;
-you normally don't call it directly.)
+rotaterev | supervise | detect | netcheck`. (`supervise` is the foreground loop
+the session runs; you normally don't call it directly.)
+
+**`displaycameras netcheck`** is a diagnostic for bandwidth/link problems (like
+tiles that freeze or run in slow motion). It reports, per camera endpoint,
+reachability + latency + whether **Tailscale** is *direct* or *relayed* (a relay
+caps throughput), then the **measured incoming throughput**, and — if the wall
+is running — each tile's **real-time playback %** (below 50% = the stream can't
+keep up, usually a bandwidth issue upstream, not the Pi). Run it at a new site
+to check whether the link can actually carry your streams.
 
 ---
 
