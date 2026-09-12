@@ -122,9 +122,12 @@ reposition_interval="${reposition_interval:-10}"
 watchdog_interval="${watchdog_interval:-15}"
 error_reload_threshold="${error_reload_threshold:-10}"
 # Reconnect a "playing" tile whose playback runs below this fraction of real
-# time (0.5 = half speed) since the last watchdog check - catches silently
-# stalled/degraded streams. Set to 0 to disable the stall check.
+# time (0.5 = half speed) - catches silently stalled/degraded streams. To avoid
+# reconnecting on brief congestion dips, only act after stall_strikes consecutive
+# slow checks (so ~stall_strikes x watchdog_interval of sustained slowness). Set
+# stall_rate=0 to disable the stall check.
 stall_rate="${stall_rate:-0.5}"
+stall_strikes="${stall_strikes:-2}"
 fill_mode="${fill_mode:-letterbox}"
 seq_step="${seq_step:-1}"
 blank="${blank:-true}"
@@ -565,17 +568,23 @@ watchdog)
 		# advance to wall-clock elapsed since the last check and reconnect when it
 		# is running below stall_rate (default 0.5 = half real-time). A time-pos
 		# decrease (reload/rotation) just re-baselines.
-		if [ -z "$reason" ]; then
+		if [ -z "$reason" ] && [ "${stall_rate:-0}" != "0" ]; then
 			tp="$("$IPC" getprop "$sock" time-pos 2>/dev/null)"
 			tf="$RUN_DIR/win-$w.tpos"
-			set -- $(cat "$tf" 2>/dev/null); ptp="${1:-}"; pwc="${2:-}"
+			set -- $(cat "$tf" 2>/dev/null); ptp="${1:-}"; pwc="${2:-}"; pst="${3:-0}"
 			if [ -n "$tp" ]; then
+				st=0
 				if [ -n "$ptp" ] && [ -n "$pwc" ]; then
-					reason="$(awk -v tp="$tp" -v ptp="$ptp" -v now="$now" -v pwc="$pwc" -v r="${stall_rate:-0.5}" 'BEGIN{
+					# s: 1 = slow this check, -1 = time-pos reset (reload/rotation), 0 = ok
+					s="$(awk -v tp="$tp" -v ptp="$ptp" -v now="$now" -v pwc="$pwc" -v r="$stall_rate" 'BEGIN{
 						wd=now-pwc; td=tp-ptp;
-						if (wd>=5 && td>=0 && td/wd<r) printf "stalled (%.1fs play in %ds)", td, wd }')"
+						if (td<0) print -1; else if (wd>=5 && td/wd<r) print 1; else print 0}')"
+					if [ "$s" = "1" ]; then
+						st=$((pst + 1))
+						[ "$st" -ge "${stall_strikes:-2}" ] && reason="stalled (< ${stall_rate}x real-time, ${st} checks)"
+					fi
 				fi
-				[ -z "$reason" ] && echo "$tp $now" >"$tf"
+				[ -z "$reason" ] && echo "$tp $now $st" >"$tf"
 			fi
 		fi
 
