@@ -493,29 +493,34 @@ positions)
 	done
 	;;
 
-# Foreground supervisor: keeps the X session alive and periodically repairs
-# tiles and (optionally) rotates feeds. Started by displaycameras-session.
+# Foreground supervisor: keeps the session alive and periodically repairs
+# tiles and (optionally) rotates feeds. Started by the session/runner.
+# Uses real elapsed time (not a loop counter): on slow boards each iteration
+# can take several seconds (spawning repair/watchdog helpers), so tick counting
+# would make the intervals - especially rotation - far longer than configured.
 supervise)
 	trap 'exit 0' TERM INT
-	tick=0
+	now="$(date +%s)"
+	last_repair="$now"; last_reposition="$now"; last_watchdog="$now"; last_rotate="$now"
 	while true; do
 		sleep 1
-		tick=$((tick + 1))
-		if [ "$repair_interval" -gt 0 ] && [ $((tick % repair_interval)) -eq 0 ]; then
-			"$0" repair
+		now="$(date +%s)"
+		if [ "$repair_interval" -gt 0 ] && [ $((now - last_repair)) -ge "$repair_interval" ]; then
+			"$0" repair; last_repair="$(date +%s)"
 		fi
-		if [ "$backend" = "full" ] && [ "$reposition_interval" -gt 0 ] && [ $((tick % reposition_interval)) -eq 0 ]; then
-			"$0" reposition
+		if [ "$backend" = "full" ] && [ "$reposition_interval" -gt 0 ] && [ $((now - last_reposition)) -ge "$reposition_interval" ]; then
+			"$0" reposition; last_reposition="$(date +%s)"
 		fi
-		if [ "$watchdog_interval" -gt 0 ] && [ $((tick % watchdog_interval)) -eq 0 ]; then
-			"$0" watchdog
+		if [ "$watchdog_interval" -gt 0 ] && [ $((now - last_watchdog)) -ge "$watchdog_interval" ]; then
+			"$0" watchdog; last_watchdog="$(date +%s)"
 		fi
-		if [ "$rotate" = "true" ] && [ "$rotatedelay" -gt 0 ] && [ $((tick % rotatedelay)) -eq 0 ]; then
+		if [ "$rotate" = "true" ] && [ "$rotatedelay" -gt 0 ] && [ $((now - last_rotate)) -ge "$rotatedelay" ]; then
 			if [ "$seq_step" -gt 1 ]; then
 				"$0" rotaterev
 			else
 				"$0" rotate
 			fi
+			last_rotate="$(date +%s)"
 		fi
 	done
 	;;
