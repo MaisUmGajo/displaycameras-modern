@@ -59,11 +59,14 @@ reposition_interval=10
 # supervisor reconnects a tile that is either:
 #   - corrupt: decoder errors rose by >= error_reload_threshold since last check
 #     (e.g. "half the image blurry"), or
-#   - frozen: time-pos stopped advancing (a silently stalled RTSP/TCP stream -
-#     "frozen in time", common on long-lived NVR/WAN connections).
-# A reconnect grabs a fresh, live stream. Set watchdog_interval=0 to disable.
+#   - stalled: playback is running below stall_rate x real-time (0.5 = half
+#     speed), i.e. frozen or badly degraded - a silently stalled RTSP/TCP stream
+#     ("frozen in time"), common on long-lived NVR/WAN connections.
+# A reconnect grabs a fresh, live stream. Set watchdog_interval=0 to disable the
+# watchdog, or stall_rate=0 to disable just the stall check.
 watchdog_interval=15
 error_reload_threshold=10
+stall_rate=0.5
 
 # Display autodetection (disabled by default). When true, the service reads the
 # current X resolution with xrandr and loads layout.conf.<WxH> if it exists

@@ -121,6 +121,10 @@ reposition_interval="${reposition_interval:-10}"
 # Set watchdog_interval=0 to disable.
 watchdog_interval="${watchdog_interval:-15}"
 error_reload_threshold="${error_reload_threshold:-10}"
+# Reconnect a "playing" tile whose playback runs below this fraction of real
+# time (0.5 = half speed) since the last watchdog check - catches silently
+# stalled/degraded streams. Set to 0 to disable the stall check.
+stall_rate="${stall_rate:-0.5}"
 fill_mode="${fill_mode:-letterbox}"
 seq_step="${seq_step:-1}"
 blank="${blank:-true}"
@@ -533,6 +537,7 @@ supervise)
 # at least error_reload_threshold since the last check.
 watchdog)
 	[ -f "$PIDFILE" ] || exit 0
+	now="$(date +%s)"
 	for w in $(seq 0 $((nwin - 1))); do
 		sock="$(sock_for_window "$w")"
 		[ -S "$sock" ] || continue
@@ -553,19 +558,24 @@ watchdog)
 			fi
 		fi
 
-		# (2) Frozen stream: time-pos not advancing between checks though the
-		# tile still reports "playing" (a silently stalled RTSP/TCP connection -
-		# "frozen in time"). repair can't see it (it looks like it's playing) and
-		# it never self-heals; a reconnect grabs a fresh, live stream.
+		# (2) Stalled/slow stream: still "playing" but its time-pos advances far
+		# below real-time - a silently degraded or fully frozen RTSP/TCP
+		# connection ("frozen in time"). repair can't see it; a reconnect grabs a
+		# fresh connection, which pulls at full rate again. We compare playback
+		# advance to wall-clock elapsed since the last check and reconnect when it
+		# is running below stall_rate (default 0.5 = half real-time). A time-pos
+		# decrease (reload/rotation) just re-baselines.
 		if [ -z "$reason" ]; then
 			tp="$("$IPC" getprop "$sock" time-pos 2>/dev/null)"
-			tf="$RUN_DIR/win-$w.tpos"; ptp="$(cat "$tf" 2>/dev/null)"
+			tf="$RUN_DIR/win-$w.tpos"
+			set -- $(cat "$tf" 2>/dev/null); ptp="${1:-}"; pwc="${2:-}"
 			if [ -n "$tp" ]; then
-				itp="${tp%.*}"; iptp="${ptp%.*}"
-				if [ -n "$ptp" ] && [ "$((itp - iptp))" -eq 0 ] 2>/dev/null; then
-					reason="frozen (time-pos ~${itp}s)"
+				if [ -n "$ptp" ] && [ -n "$pwc" ]; then
+					reason="$(awk -v tp="$tp" -v ptp="$ptp" -v now="$now" -v pwc="$pwc" -v r="${stall_rate:-0.5}" 'BEGIN{
+						wd=now-pwc; td=tp-ptp;
+						if (wd>=5 && td>=0 && td/wd<r) printf "stalled (%.1fs play in %ds)", td, wd }')"
 				fi
-				echo "$tp" >"$tf"   # re-baseline (also covers reset/rotation: delta<0)
+				[ -z "$reason" ] && echo "$tp $now" >"$tf"
 			fi
 		fi
 
