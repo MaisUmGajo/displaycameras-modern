@@ -203,9 +203,59 @@ control/monitoring: displaycameras  ──JSON IPC──▶  each mpv tile socke
 ## Tuning & troubleshooting
 
 - **Only a few feeds decode / high CPU.** The Pi 4 has one hardware H.264
-  decoder shared across all tiles. Use low-res substreams, raise the CMA pool
-  (`dtoverlay=vc4-kms-v3d,cma-256` in `config.txt`), and keep `hwdec=auto-safe`.
-  For many small tiles, `hwdec=drm-prime` can lower CPU further.
+  decoder shared across all tiles. Use low-res substreams sized to the tile —
+  and read the next three entries before reaching for `hwdec` or CMA, because
+  on the X11 backend they trade against each other rather than both being wins.
+- **`hwdec=auto-safe` does not give you hardware decoding on a Pi.** mpv's
+  "safe" set only probes desktop hwdecs, so it silently falls back to software.
+  Confirmed on a Pi 4 (Debian 13, `vc4-kms-v3d`) by asking the running players
+  over their IPC sockets: `hwdec-current` was `no` on all 13 tiles while
+  `/dev/video10-12` had zero clients. The lite backend already defaults to
+  `v4l2m2m-copy` for this reason; the X11 backend still defaults to
+  `auto-safe`, which is a deliberate trade — see the next entry. Either way,
+  **verify rather than assume**, e.g.
+  `displaycameras ipc 0 get_property hwdec-current`.
+- **`hwdec=v4l2m2m-copy` on X11 costs video memory, and can cost you tiles.**
+  Each hardware-decoded window took roughly **45–50 MB of CMA** on the Pi
+  above. With `cma-512` and 13 tiles only 9 would start; the rest died with:
+
+  ```
+  VK_ERROR_OUT_OF_DEVICE_MEMORY - Failed (re)creating swapchain
+  DRM_IOCTL_MODE_CREATE_DUMB failed: Cannot allocate memory
+  ```
+
+  Software decode ran all 13 at ~40% of four cores with no throttling, so on a
+  large X11 wall `auto-safe` may genuinely be the better setting. Hardware
+  decode roughly halves CPU — take it if your tile count fits the CMA budget,
+  and check afterwards that every tile actually came back.
+- **Sizing CMA, and what actually consumes it.** CMA holds the scanout buffers
+  for every mpv window, so it scales with **window size and tile count** — not
+  with your streams' resolution. On the Pi above, 13 software-decoded tiles
+  (nine 1280x720 plus four 1920x1080) left only **63 MB of 512 MB** free.
+  Rough rule from that machine: **~25 MB per 720p tile**, ~2.25x that per
+  1080p tile. `cma-256` is enough for a 3x3 720p wall but not for a large
+  dual-HDMI one.
+
+  The cheapest fix is usually **not** more CMA — it is not driving a panel at
+  more pixels than the content needs. That wall's second display was a 2x2
+  being run at 3840x2160, making each tile 1920x1080; setting
+  `hdmi1_mode="1920x1080"` made them 960x540, showed the same picture on the
+  same screen, and freed **135 MB** (63 MB → ~200 MB free).
+- **Do not raise CMA with `cma=` on the kernel cmdline.** It looks like the way
+  past the overlay's `cma-512` ceiling. It is not:
+
+  ```
+  OF: reserved mem: Skipping dt linux,cma-default for "cma=" kernel param.
+  cma: Failed to reserve 768 MiB
+  Memory: ... 0K cma-reserved
+  ```
+
+  `cma=` makes the kernel **skip the device-tree node entirely** rather than
+  adding to it, so there is no fallback — if the value cannot be reserved
+  (768 MB could not, on a 4 GB Pi 4: CMA must fit the low DMA zone the
+  VideoCore can address) you get **zero** CMA and no display at all. Being a
+  boot-config change, recovery needs physical access to the SD card. Treat
+  `dtoverlay=vc4-kms-v3d,cma-512` as the ceiling and reduce demand instead.
 - **Tiles aren't positioned exactly.** Openbox must be running (it is, in the
   session) so mpv `--geometry` is honored. On multi-monitor setups a stacking
   WM can still clamp windows that span the second output, so the service also
@@ -240,12 +290,25 @@ The Pi 4 has two HDMI outputs and this is supported directly. Turn it on in
 
 ```bash
 dual_hdmi="true"
-hdmi0_output="HDMI-A-1"      # primary, at the origin (blank = auto-detect)
-hdmi1_output="HDMI-A-2"
+hdmi0_output="HDMI-1"        # primary, at the origin (blank = auto-detect)
+hdmi1_output="HDMI-2"
 hdmi1_position="right-of"    # right-of | left-of | above | below
 #hdmi0_mode="3840x2160"      # optional; blank = preferred mode
 #hdmi1_mode="1920x1080"
 ```
+
+**Output names here are Xorg's, not the kernel's.** These go to `xrandr`, and
+on a Pi 4 the kernel names its connectors `HDMI-A-1`/`HDMI-A-2` (as seen in
+`/sys/class/drm/`) while the Xorg modesetting driver calls the very same
+outputs `HDMI-1`/`HDMI-2`. Using the kernel spelling here matches nothing, and
+fails silently — you get a mirrored or blank second screen with no error.
+`xrandr --query` is the authority; use exactly what it prints.
+
+**Set the modes explicitly on a dual 4K setup.** Leaving them blank relies on
+the driver advertising a preferred mode, and on a Pi 4 that flag disappears
+once a mode has been set — no `+` in `xrandr`, no `preferred` in
+`xrandr --verbose`. After that, auto-detection silently settled on 1920x1080
+for two 4K panels.
 
 At session start the service runs `xrandr` to arrange both outputs into one
 screen (`displaycameras arrange-displays`). In the layout file, add a
@@ -258,6 +321,12 @@ See [`config/layouts/layout.conf.dual-hdmi.example`](config/layouts/layout.conf.
 for a 3x3-on-one-output plus 2x2-on-the-other wall. Find your output names with
 `xrandr --query`. Note that both grids share the Pi 4's single hardware
 decoder, so favor low-resolution substreams.
+
+A 13-tile dual-HDMI wall wants `dtoverlay=vc4-kms-v3d,cma-512`, not the
+`cma-256` in `boot/config.txt.append` — see "Sizing CMA" above. Match each
+panel's mode to what its grid actually shows, too: running a 2x2 at 4K makes
+every tile 1920x1080 and costs four times the video memory of running it at
+1080p, for a picture the panel displays identically.
 
 ---
 
